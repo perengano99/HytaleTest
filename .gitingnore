@@ -1,0 +1,29 @@
+# --- IDE & Sistema ---
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# --- Gradle ---
+.gradle/
+build/
+gradle/
+!gradle/wrapper/gradle-wrapper.jar
+
+# --- Hytale Specifics ---
+HytaleServer.jar
+Assets.zip
+hytale-server/
+.venv/
+hytale_auth.json
+auth_tokens/
+
+# --- Logs y Runtime ---
+logs/
+run/
+crash-reports/
+
+# --- Build Artifacts ---
+earlyplugins/*.jar
+lib/
+!lib/README.md
