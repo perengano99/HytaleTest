@@ -3,11 +3,15 @@ plugins {
     id 'idea'
 }
 
+// Project metadata loaded from gradle.properties.
+// Ensure these values are correctly set in that file.
 group = project.maven_group
 version = project.plugin_version
 
 repositories {
     mavenCentral()
+    // Local repository configuration to include the HytaleServer.jar located in the 'lib' folder.
+    // This allows treating the local JAR as a dependency.
     ivy {
         url = file('lib')
         patternLayout {
@@ -18,6 +22,7 @@ repositories {
 }
 
 java {
+    // Configures the Java Toolchain. Ensure your IDE and system have this Java version installed.
     toolchain {
         languageVersion = JavaLanguageVersion.of(25)
     }
@@ -25,21 +30,28 @@ java {
 
 idea {
     module {
-        downloadSources = true // Obliga a IntelliJ a pedir los sources
+        // Forces IntelliJ to attempt downloading sources and Javadoc.
+        // Useful when attaching the decompiled sources manually.
+        downloadSources = true
         downloadJavadoc = true
     }
 }
 
 configurations {
+    // Configuration for the Vineflower decompiler.
     vineflower
 }
 
 dependencies {
+    // The Hytale Server JAR is a compile-time dependency only; it is not included in the final plugin JAR.
     compileOnly group: 'hytale', name: 'HytaleServer', version: 'local'
+    // Dependency for the Vineflower decompiler used in the genSources task.
     vineflower 'org.vineflower:vineflower:1.11.1'
 }
 
 processResources {
+    // Map of properties to inject into manifest.json.
+    // These values are derived from gradle.properties.
     def props = ['plugin_group'      : project.plugin_group,
                  'plugin_name'       : project.plugin_name,
                  'plugin_version'    : project.plugin_version,
@@ -52,12 +64,14 @@ processResources {
     inputs.properties props
     filteringCharset 'UTF-8'
 
+    // Replaces placeholders in manifest.json with the values defined above.
     filesMatching('manifest.json') {
         expand props
     }
 }
 
 jar {
+    // Adds metadata to the generated JAR manifest.
     manifest {
         attributes('Created-By': "Gradle ${gradle.gradleVersion}",
                 'Build-Jdk': "${System.properties['java.version']}")
@@ -65,21 +79,27 @@ jar {
 }
 
 tasks.withType(JavaCompile).configureEach {
+    // Ensures source files are compiled using UTF-8 encoding.
     options.encoding = 'UTF-8'
 }
 
+// Task to synchronize assets from source to the build directory.
+// This ensures the server uses the latest assets from your project.
 tasks.register('syncSrcAssets', Copy) {
     group = 'hytale'
-    description = 'Sincroniza los assets de src a inGame/build'
+    description = 'Synchronizes assets from src to inGame/build'
 
     from('src/main/resources') {
         exclude 'manifest.json'
     }
     into(sourceSets.main.output.resourcesDir)
 }
+
+// Task to synchronize assets from the build directory back to source.
+// This is critical for saving changes made via the in-game Asset Editor.
 tasks.register('syncBuildAssets', Copy) {
     group = 'hytale'
-    description = 'Sincroniza los assets de inGame/build a src'
+    description = 'Synchronizes assets from inGame/build back to src'
 
     from(sourceSets.main.output.resourcesDir) {
         exclude 'manifest.json'
@@ -87,86 +107,102 @@ tasks.register('syncBuildAssets', Copy) {
     into('src/main/resources')
 
     doFirst {
+        // Checks if the server was run before executing this task.
         if (gradle.taskGraph.hasTask(':runServer')) {
             println ""
-            println "[HytaleDev] El proceso del servidor ha terminado."
-            println "[HytaleDev] Guardando cambios del Asset Editor en 'src/main/resources'..."
+            println "[HytaleDev] Server process finished."
+            println "[HytaleDev] Saving Asset Editor changes to 'src/main/resources'..."
         }
     }
 }
+
+// Task to run the local Hytale server for testing the plugin.
 tasks.register('runServer', JavaExec) {
     group = 'hytale'
-    description = 'Lanza un servidor Hytale local para probar el plugin'
+    description = 'Launches a local Hytale server to test the plugin'
 
+    // Ensure classes are compiled and assets are synced before running.
     dependsOn(tasks.named('classes'))
     dependsOn(tasks.named('syncSrcAssets'))
 
+    // Sync assets back to source after the server stops (to save Asset Editor changes).
     finalizedBy(tasks.named('syncBuildAssets'))
 
+    // Classpath includes the plugin runtime and the server JAR.
     classpath = sourceSets.main.runtimeClasspath + files('lib/HytaleServer.jar')
-    // From Server MANIFEST.MF
+    // Main class entry point for the Hytale Server.
     mainClass = 'com.hypixel.hytale.Main'
 
     ignoreExitValue = true as JavaExecSpec
 
-    // JVM Args
+    // JVM Arguments for the server.
+    // Adjust memory settings (-Xms, -Xmx) based on your system resources.
+    // The agentlib argument enables remote debugging on port 5005.
     jvmArgs = ['-Xms1G',
                '-Xmx2G',
                '-XX:+UseG1GC',
                '-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005']
 
-    // Program Args (Hytale Server Flags)
+    // Program Arguments (Hytale Server Flags).
+    // --assets: Path to the assets zip file.
+    // --disable-sentry: Disables error reporting.
+    // --allow-op: Grants OP privileges.
     args = ['--assets', '../lib/Assets.zip',
             '--disable-sentry', '--allow-op']
 
+    // Working directory for the server execution.
     workingDir = file('run')
     standardInput = System.in
 }
 
+// Complex task to generate readable source code (HytaleServer-sources.jar) using Vineflower.
+// This is useful for debugging and understanding the server code.
 tasks.register('genSources', JavaExec) {
     group = 'hytale'
-    description = 'Genera fuentes legibles (HytaleServer-sources.jar) usando Vineflower.'
+    description = 'Generates readable sources (HytaleServer-sources.jar) using Vineflower.'
 
-    // 1. Configuración Lazy
+    // 1. Configuration
     classpath = configurations.vineflower
     mainClass.set('org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler')
 
-    // 2. Definición de rutas
-    // layout.projectDirectory.file devuelve DIRECTAMENTE el archivo (sin Provider)
+    // 2. Path Definitions
+    // Input: The obfuscated server JAR.
     def inputJarFile = layout.projectDirectory.file('lib/HytaleServer.jar')
+    // Output: The destination for the sources JAR.
     def finalDestFile = layout.projectDirectory.file('lib/HytaleServer-sources.jar')
 
-    // layout.buildDirectory devuelve un PROVIDER (necesita .get())
+    // Temporary directory for decompiled files.
     def outputDir = layout.buildDirectory.dir('generated/sources/vineflower')
 
-    // 3. Declaración de Inputs/Outputs (Cache)
+    // 3. Cache Inputs/Outputs
     inputs.file(inputJarFile).withPropertyName('serverJar')
     outputs.file(finalDestFile).withPropertyName('sourcesJar')
     outputs.dir(outputDir).withPropertyName('tempDir')
 
-    jvmArgs = ['-Xmx8G', // Heap máximo
-               '-Xms2G', // Heap inicial
-               '-XX:+UseG1GC', // Garbage Collector moderno
-               // --- EL TRUCO DE DEVOPS ---
-               '-XX:ActiveProcessorCount=4', // Limitamos la concurrencia. Menos hilos = Más RAM por hilo.
-
-               // A veces las clases complejas truenan por pila (Stack), no por Heap.
+    // 4. JVM Arguments for Decompilation
+    // Decompilation is memory intensive. Adjust these if you encounter OutOfMemoryErrors.
+    jvmArgs = ['-Xmx8G', // Max Heap
+               '-Xms2G', // Initial Heap
+               '-XX:+UseG1GC', // Modern GC
+               // Limits concurrency to save RAM per thread.
+               '-XX:ActiveProcessorCount=4',
+               // Increased stack size for complex class analysis.
                '-Xss4M']
 
-
+    // Vineflower arguments.
     args = ['-dgs=1',
             '-rsy=1',
             '-asc=1',
-            inputJarFile.asFile.absolutePath,      // <-- CORREGIDO (antes tenía .get())
-            outputDir.get().asFile.absolutePath    // <-- ESTE SÍ LLEVA .get()
+            inputJarFile.asFile.absolutePath,
+            outputDir.get().asFile.absolutePath
     ]
 
-    // 5. Lógica de ejecución
+    // 5. Execution Logic
     doFirst {
-        // Limpiamos y creamos el temporal
+        // Clean and prepare the output directory.
         delete(outputDir)
         mkdir(outputDir)
-        println "🕵️ [HytaleDev] Descompilando... Esto tomará tiempo."
+        println "[HytaleDev] Decompiling... This will take some time."
     }
 
     doLast {
@@ -174,15 +210,16 @@ tasks.register('genSources', JavaExec) {
         def finalFile = finalDestFile.asFile
 
         if (generatedDir.listFiles()?.length > 0) {
-            println "📦 [HytaleDev] Empaquetando archivos .java en un JAR..."
+            println "[HytaleDev] Packaging .java files into a JAR..."
 
-            // Usamos Ant para crear el JAR de fuentes
+            // Use Ant to package the sources into a JAR.
             ant.jar(destfile: finalFile, basedir: generatedDir)
 
-            println "✅ [HytaleDev] ¡Listo! Fuentes generadas en: lib/HytaleServer-sources.jar"
-            println "👉 [ACTION] No olvides vincularlo en IntelliJ (Project Structure > Libraries)."
+            println "[HytaleDev] Done! Sources generated at: lib/HytaleServer-sources.jar"
+            println "[HytaleDev] Ivy should automatically detect the sources."
+            println "[HytaleDev] If you encounter issues, try running the 'clean' task to remove generated files."
         } else {
-            throw new GradleException("❌ Error: Vineflower no generó archivos en la carpeta de salida.")
+            throw new GradleException("Error: Vineflower did not generate any files in the output folder.")
         }
     }
 }

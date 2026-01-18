@@ -1,4 +1,4 @@
-# --- IDE & Sistema ---
+# --- IDE & System ---
 .idea/
 *.iml
 .vscode/
@@ -7,22 +7,14 @@
 # --- Gradle ---
 .gradle/
 build/
-gradle/
-!gradle/wrapper/gradle-wrapper.jar
 
 # --- Hytale Specifics ---
-HytaleServer.jar
-Assets.zip
-hytale-server/
-.venv/
-hytale_auth.json
-auth_tokens/
-
-# --- Logs y Runtime ---
-logs/
-run/
-crash-reports/
-
-# --- Build Artifacts ---
-lib/
+# Exclude the server JAR and assets, but keep the lib directory structure
+lib/*.jar
+lib/*.zip
 !lib/README.md
+
+# Runtime directories
+run/
+logs/
+crash-reports/
