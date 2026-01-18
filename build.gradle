@@ -1,5 +1,6 @@
 plugins {
     id 'java'
+    id 'idea'
 }
 
 group = project.maven_group
@@ -7,41 +8,50 @@ version = project.plugin_version
 
 repositories {
     mavenCentral()
+    ivy {
+        url = file('lib')
+        patternLayout {
+            artifact '[artifact](-[classifier]).[ext]'
+        }
+        metadataSources { artifact() }
+    }
 }
 
 java {
-    // Requisito estricto: Java 25 [cite: 6]
     toolchain {
         languageVersion = JavaLanguageVersion.of(25)
     }
 }
 
-dependencies {
-    // El servidor es la dependencia principal.
-    // Usamos compileOnly porque al correr, el servidor ya tiene estas clases.
-    // Asegúrate de tener el HytaleServer.jar en la raíz o ajusta la ruta.
-    compileOnly files('lib/HytaleServer.jar')
+idea {
+    module {
+        downloadSources = true // Obliga a IntelliJ a pedir los sources
+        downloadJavadoc = true
+    }
+}
 
-    // Aquí puedes agregar otras librerías si tu plugin las necesita,
-    // pero recuerda que el server ya trae Netty, Flecs, etc.
+configurations {
+    vineflower
+}
+
+dependencies {
+    compileOnly group: 'hytale', name: 'HytaleServer', version: 'local'
+    vineflower 'org.vineflower:vineflower:1.11.1'
 }
 
 processResources {
-    def props = ['plugin_group'          : project.plugin_group,
-                 'plugin_name'           : project.plugin_name,
-                 'plugin_version'        : project.plugin_version,
-                 'plugin_description'    : project.plugin_description,
-                 'plugin_author'         : project.plugin_author,
-                 'plugin_website'        : project.plugin_website,
-                 'server_version'        : project.server_version,
-                 'plugin_main': project.plugin_main
-    ]
+    def props = ['plugin_group'      : project.plugin_group,
+                 'plugin_name'       : project.plugin_name,
+                 'plugin_version'    : project.plugin_version,
+                 'plugin_description': project.plugin_description,
+                 'plugin_author'     : project.plugin_author,
+                 'plugin_website'    : project.plugin_website,
+                 'server_version'    : project.server_version,
+                 'plugin_main'       : project.plugin_main]
 
-    // Le decimos a Gradle que vigile estas propiedades
     inputs.properties props
     filteringCharset 'UTF-8'
 
-    // Solo aplicamos la expansión al archivo manifest.json para no romper assets binarios (imágenes)
     filesMatching('manifest.json') {
         expand props
     }
@@ -49,31 +59,60 @@ processResources {
 
 jar {
     manifest {
-        attributes(
-                'Created-By': "Gradle ${gradle.gradleVersion}",
-                'Build-Jdk': "${System.properties['java.version']}"
-        )
+        attributes('Created-By': "Gradle ${gradle.gradleVersion}",
+                'Build-Jdk': "${System.properties['java.version']}")
     }
 }
 
-// Configuración para que los archivos fuente usen UTF-8
-tasks.withType(JavaCompile) {
+tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
 }
 
+tasks.register('syncSrcAssets', Copy) {
+    group = 'hytale'
+    description = 'Sincroniza los assets de src a inGame/build'
+
+    from('src/main/resources') {
+        exclude 'manifest.json'
+    }
+    into(sourceSets.main.output.resourcesDir)
+}
+tasks.register('syncBuildAssets', Copy) {
+    group = 'hytale'
+    description = 'Sincroniza los assets de inGame/build a src'
+
+    from(sourceSets.main.output.resourcesDir) {
+        exclude 'manifest.json'
+    }
+    into('src/main/resources')
+
+    doFirst {
+        if (gradle.taskGraph.hasTask(':runServer')) {
+            println ""
+            println "[HytaleDev] El proceso del servidor ha terminado."
+            println "[HytaleDev] Guardando cambios del Asset Editor en 'src/main/resources'..."
+        }
+    }
+}
 tasks.register('runServer', JavaExec) {
     group = 'hytale'
-    description = 'Lanza el servidor de Hytale con soporte de depuración y optimizaciones.'
+    description = 'Lanza un servidor Hytale local para probar el plugin'
+
+    dependsOn(tasks.named('classes'))
+    dependsOn(tasks.named('syncSrcAssets'))
+
+    finalizedBy(tasks.named('syncBuildAssets'))
 
     classpath = sourceSets.main.runtimeClasspath + files('lib/HytaleServer.jar')
     // From Server MANIFEST.MF
     mainClass = 'com.hypixel.hytale.Main'
 
+    ignoreExitValue = true as JavaExecSpec
+
     // JVM Args
     jvmArgs = ['-Xms1G',
                '-Xmx2G',
                '-XX:+UseG1GC',
-               '-XX:AOTCache=server.aot',
                '-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005']
 
     // Program Args (Hytale Server Flags)
@@ -82,4 +121,68 @@ tasks.register('runServer', JavaExec) {
 
     workingDir = file('run')
     standardInput = System.in
+}
+
+tasks.register('genSources', JavaExec) {
+    group = 'hytale'
+    description = 'Genera fuentes legibles (HytaleServer-sources.jar) usando Vineflower.'
+
+    // 1. Configuración Lazy
+    classpath = configurations.vineflower
+    mainClass.set('org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler')
+
+    // 2. Definición de rutas
+    // layout.projectDirectory.file devuelve DIRECTAMENTE el archivo (sin Provider)
+    def inputJarFile = layout.projectDirectory.file('lib/HytaleServer.jar')
+    def finalDestFile = layout.projectDirectory.file('lib/HytaleServer-sources.jar')
+
+    // layout.buildDirectory devuelve un PROVIDER (necesita .get())
+    def outputDir = layout.buildDirectory.dir('generated/sources/vineflower')
+
+    // 3. Declaración de Inputs/Outputs (Cache)
+    inputs.file(inputJarFile).withPropertyName('serverJar')
+    outputs.file(finalDestFile).withPropertyName('sourcesJar')
+    outputs.dir(outputDir).withPropertyName('tempDir')
+
+    jvmArgs = ['-Xmx8G', // Heap máximo
+               '-Xms2G', // Heap inicial
+               '-XX:+UseG1GC', // Garbage Collector moderno
+               // --- EL TRUCO DE DEVOPS ---
+               '-XX:ActiveProcessorCount=4', // Limitamos la concurrencia. Menos hilos = Más RAM por hilo.
+
+               // A veces las clases complejas truenan por pila (Stack), no por Heap.
+               '-Xss4M']
+
+
+    args = ['-dgs=1',
+            '-rsy=1',
+            '-asc=1',
+            inputJarFile.asFile.absolutePath,      // <-- CORREGIDO (antes tenía .get())
+            outputDir.get().asFile.absolutePath    // <-- ESTE SÍ LLEVA .get()
+    ]
+
+    // 5. Lógica de ejecución
+    doFirst {
+        // Limpiamos y creamos el temporal
+        delete(outputDir)
+        mkdir(outputDir)
+        println "🕵️ [HytaleDev] Descompilando... Esto tomará tiempo."
+    }
+
+    doLast {
+        def generatedDir = outputDir.get().asFile
+        def finalFile = finalDestFile.asFile
+
+        if (generatedDir.listFiles()?.length > 0) {
+            println "📦 [HytaleDev] Empaquetando archivos .java en un JAR..."
+
+            // Usamos Ant para crear el JAR de fuentes
+            ant.jar(destfile: finalFile, basedir: generatedDir)
+
+            println "✅ [HytaleDev] ¡Listo! Fuentes generadas en: lib/HytaleServer-sources.jar"
+            println "👉 [ACTION] No olvides vincularlo en IntelliJ (Project Structure > Libraries)."
+        } else {
+            throw new GradleException("❌ Error: Vineflower no generó archivos en la carpeta de salida.")
+        }
+    }
 }
