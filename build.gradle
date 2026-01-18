@@ -26,16 +26,32 @@ dependencies {
     // pero recuerda que el server ya trae Netty, Flecs, etc.
 }
 
+processResources {
+    def props = ['plugin_group'          : project.plugin_group,
+                 'plugin_name'           : project.plugin_name,
+                 'plugin_version'        : project.plugin_version,
+                 'plugin_description'    : project.plugin_description,
+                 'plugin_author'         : project.plugin_author,
+                 'plugin_website'        : project.plugin_website,
+                 'server_version'        : project.server_version,
+                 'plugin_main': project.plugin_main
+    ]
+
+    // Le decimos a Gradle que vigile estas propiedades
+    inputs.properties props
+    filteringCharset 'UTF-8'
+
+    // Solo aplicamos la expansión al archivo manifest.json para no romper assets binarios (imágenes)
+    filesMatching('manifest.json') {
+        expand props
+    }
+}
+
 jar {
-    // Configuración del Manifiesto [cite: 17]
     manifest {
         attributes(
-                // Debe apuntar a tu clase principal (Main)
-                'Main': "${project.maven_group}.${project.plugin_name}",
-                // Gestión de compatibilidad
-                'Version': project.plugin_version,
-                // Ponlo en true si vas a meter modelos/texturas
-                'IncludesAssetPack': 'false'
+                'Created-By': "Gradle ${gradle.gradleVersion}",
+                'Build-Jdk': "${System.properties['java.version']}"
         )
     }
 }
@@ -54,19 +70,15 @@ tasks.register('runServer', JavaExec) {
     mainClass = 'com.hypixel.hytale.Main'
 
     // JVM Args
-    jvmArgs = [
-            '-Xms1G',
-            '-Xmx2G',
-            '-XX:+UseG1GC',
-            '-XX:AOTCache=server.aot',
-            '-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005'
-    ]
+    jvmArgs = ['-Xms1G',
+               '-Xmx2G',
+               '-XX:+UseG1GC',
+               '-XX:AOTCache=server.aot',
+               '-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005']
 
     // Program Args (Hytale Server Flags)
-    args = [
-            '--assets', '../lib/Assets.zip',
-            '--disable-sentry', '--allow-op'
-    ]
+    args = ['--assets', '../lib/Assets.zip',
+            '--disable-sentry', '--allow-op']
 
     workingDir = file('run')
     standardInput = System.in
