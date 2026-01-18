@@ -24,6 +24,5 @@ run/
 crash-reports/
 
 # --- Build Artifacts ---
-earlyplugins/*.jar
-lib/
 !lib/README.md
+lib/
