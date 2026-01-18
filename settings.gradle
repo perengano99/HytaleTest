@@ -1,0 +1,3 @@
+// The name of the root project.
+// It is automatically loaded from the 'plugin_name' property in gradle.properties.
+rootProject.name = plugin_name
