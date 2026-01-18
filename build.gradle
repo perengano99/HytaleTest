@@ -1,0 +1,73 @@
+plugins {
+    id 'java'
+}
+
+group = project.maven_group
+version = project.plugin_version
+
+repositories {
+    mavenCentral()
+}
+
+java {
+    // Requisito estricto: Java 25 [cite: 6]
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+dependencies {
+    // El servidor es la dependencia principal.
+    // Usamos compileOnly porque al correr, el servidor ya tiene estas clases.
+    // Asegúrate de tener el HytaleServer.jar en la raíz o ajusta la ruta.
+    compileOnly files('lib/HytaleServer.jar')
+
+    // Aquí puedes agregar otras librerías si tu plugin las necesita,
+    // pero recuerda que el server ya trae Netty, Flecs, etc.
+}
+
+jar {
+    // Configuración del Manifiesto [cite: 17]
+    manifest {
+        attributes(
+                // Debe apuntar a tu clase principal (Main)
+                'Main': "${project.maven_group}.${project.plugin_name}",
+                // Gestión de compatibilidad
+                'Version': project.plugin_version,
+                // Ponlo en true si vas a meter modelos/texturas
+                'IncludesAssetPack': 'false'
+        )
+    }
+}
+
+// Configuración para que los archivos fuente usen UTF-8
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
+
+tasks.register('runServer', JavaExec) {
+    group = 'hytale'
+    description = 'Lanza el servidor de Hytale con soporte de depuración y optimizaciones.'
+
+    classpath = sourceSets.main.runtimeClasspath + files('lib/HytaleServer.jar')
+    // From Server MANIFEST.MF
+    mainClass = 'com.hypixel.hytale.Main'
+
+    // JVM Args
+    jvmArgs = [
+            '-Xms1G',
+            '-Xmx2G',
+            '-XX:+UseG1GC',
+            '-XX:AOTCache=server.aot',
+            '-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005'
+    ]
+
+    // Program Args (Hytale Server Flags)
+    args = [
+            '--assets', '../lib/Assets.zip',
+            '--disable-sentry', '--allow-op'
+    ]
+
+    workingDir = file('run')
+    standardInput = System.in
+}
