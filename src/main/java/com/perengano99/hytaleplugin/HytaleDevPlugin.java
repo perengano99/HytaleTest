@@ -5,6 +5,7 @@ import com.hypixel.hytale.logger.HytaleLogger;
 import com.hypixel.hytale.server.core.plugin.JavaPlugin;
 import com.hypixel.hytale.server.core.plugin.JavaPluginInit;
 
+@SuppressWarnings("unused")
 public class HytaleDevPlugin extends JavaPlugin {
 	
 	private static final HytaleLogger LOGGER = HytaleLogger.forEnclosingClass();
