@@ -1,6 +1,6 @@
 # Hytale Plugin Template
 
-A professional, ready-to-use Gradle template for developing Hytale server plugins. This project provides a pre-configured environment with tasks for running a local server, debugging, and managing assets.
+A simple ready-to-use Gradle template for developing Hytale server plugins. This project provides a pre-configured environment with tasks for running a local server, debugging, and managing assets.
 
 ## 🚀 Getting Started
 
