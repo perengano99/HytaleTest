@@ -6,14 +6,20 @@ import com.hypixel.hytale.server.core.asset.type.blocktick.config.TickProcedure;
 import com.hypixel.hytale.server.core.asset.type.blocktype.config.BlockType;
 import com.hypixel.hytale.server.core.plugin.JavaPlugin;
 import com.hypixel.hytale.server.core.plugin.JavaPluginInit;
+import com.hypixel.hytale.server.core.plugin.PluginBase;
+import com.hypixel.hytale.server.core.plugin.PluginInit;
 import com.hypixel.hytale.server.core.universe.world.chunk.BlockChunk;
 import com.hypixel.hytale.server.core.universe.world.chunk.ChunkColumn;
 import com.hypixel.hytale.server.core.universe.world.chunk.section.BlockSection;
 import com.hypixel.hytale.server.core.universe.world.events.ChunkPreLoadProcessEvent;
 import com.hypixel.hytale.server.core.universe.world.storage.ChunkStore;
 import com.hypixel.hytale.server.core.util.Config;
+import com.perengano99.hytaleplugin.config.ExposureBlockerModelsConfig;
+import com.perengano99.hytaleplugin.config.GrassGrowthConfig;
 
 import javax.annotation.Nonnull;
+import java.lang.reflect.Field;
+import java.nio.file.Path;
 
 
 @SuppressWarnings("unused")
@@ -21,15 +27,32 @@ public class HytaleDevPlugin extends JavaPlugin {
 	
 	private static final HytaleLogger LOGGER = HytaleLogger.forEnclosingClass();
 	private static HytaleDevPlugin instance;
+	private static final Path pluginDataDirectory = Path.of("mods/HytaleDevPlugin");
 	
 	private final Config<GrassGrowthConfig> grassGrowthConfig;
+	private final Config<ExposureBlockerModelsConfig> exposureBlockerModelsConfig;
 	
 	public HytaleDevPlugin(JavaPluginInit init) {
 		super(init);
+		// Replace data directory to one more aesthetic.
+		try {
+			Field initDataDirectoryField = PluginInit.class.getDeclaredField("dataDirectory");
+			initDataDirectoryField.setAccessible(true);
+			initDataDirectoryField.set(init, pluginDataDirectory);
+			
+			Field baseDataDirectoryField = PluginBase.class.getDeclaredField("dataDirectory");
+			baseDataDirectoryField.setAccessible(true);
+			baseDataDirectoryField.set(this, pluginDataDirectory);
+		} catch (NoSuchFieldException | IllegalAccessException e) {
+			throw new RuntimeException(e);
+		}
+		grassGrowthConfig           = withConfig("GrassGrowthConfig", GrassGrowthConfig.CODEC);
+		exposureBlockerModelsConfig = withConfig("ExposureBlockerModelsConfig", ExposureBlockerModelsConfig.CODEC);
+		
 		instance = this;
-		LOGGER.atInfo().log("Plugin inicializado!");
-		grassGrowthConfig = withConfig("GrassGrowthConfig", GrassGrowthConfig.CODEC);
-		LOGGER.atInfo().log("Config cargada!");
+		LOGGER.atInfo().log("=======================================================");
+		LOGGER.atInfo().log("¡Hytale Dev Plugin Creado!");
+		LOGGER.atInfo().log("=======================================================");
 	}
 	
 	public static GrassGrowthConfig getGrassGrowthConfig() {
@@ -37,10 +60,18 @@ public class HytaleDevPlugin extends JavaPlugin {
 		return instance.grassGrowthConfig.get();
 	}
 	
+	public static ExposureBlockerModelsConfig getExposureBlockerModelsConfig() {
+		assert instance != null;
+		return instance.exposureBlockerModelsConfig.get();
+	}
+	
 	@Override
 	protected void setup() {
 		LOGGER.atInfo().log("Hello, Hytale! The development environment is up and running.");
-		
+		try {
+			grassGrowthConfig.save();
+			exposureBlockerModelsConfig.save();
+		} catch (Exception _) {}
 		
 		//		int dirtId = BlockType.getAssetMap().getIndex("Soil_Dirt");
 		//		this.getEntityStoreRegistry().registerSystem(new GlobalUpdateSystem());
@@ -82,4 +113,8 @@ public class HytaleDevPlugin extends JavaPlugin {
 		if (modified)
 			bc.markNeedsSaving();
 	}
+	
+	//	private <T> Config<T> createConfig(List<Config<?>> configs, String name, BuilderCodec<T> codec) {
+	//		Config<T> config = new Config<>(new Path() {}, name, codec);
+	//	}
 }
