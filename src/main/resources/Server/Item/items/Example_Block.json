@@ -13,6 +13,9 @@
     "DrawType": "Cube",
     "Group": "Dirt",
     "Flags": {},
+    "TickProcedure": {
+      "Type": "pedo_procedure"
+    },
     "Gathering": {
       "Breaking": {
         "GatherType": "Soils"
