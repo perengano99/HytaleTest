@@ -22,6 +22,10 @@ public class GrassGrowthConfig {
 		return rules.get(rule);
 	}
 	
+	public Map<String, GrowthRule> getRules() {
+		return rules;
+	}
+	
 	public int getWaterNearbyRadius() {
 		return waterNearbyRadius;
 	}

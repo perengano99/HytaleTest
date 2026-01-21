@@ -4,6 +4,7 @@ import com.hypixel.hytale.component.Holder;
 import com.hypixel.hytale.logger.HytaleLogger;
 import com.hypixel.hytale.server.core.asset.type.blocktick.config.TickProcedure;
 import com.hypixel.hytale.server.core.asset.type.blocktype.config.BlockType;
+import com.hypixel.hytale.server.core.modules.interaction.interaction.config.Interaction;
 import com.hypixel.hytale.server.core.plugin.JavaPlugin;
 import com.hypixel.hytale.server.core.plugin.JavaPluginInit;
 import com.hypixel.hytale.server.core.plugin.PluginBase;
@@ -14,8 +15,12 @@ import com.hypixel.hytale.server.core.universe.world.chunk.section.BlockSection;
 import com.hypixel.hytale.server.core.universe.world.events.ChunkPreLoadProcessEvent;
 import com.hypixel.hytale.server.core.universe.world.storage.ChunkStore;
 import com.hypixel.hytale.server.core.util.Config;
+import com.perengano99.hytaleplugin.commands.LocateBiomeCommand;
+import com.perengano99.hytaleplugin.commands.ReloadCommand;
+import com.perengano99.hytaleplugin.commands.SyncAssetsCommand;
 import com.perengano99.hytaleplugin.config.ExposureBlockerModelsConfig;
 import com.perengano99.hytaleplugin.config.GrassGrowthConfig;
+import com.perengano99.hytaleplugin.interaction.BlockInfoGetterInteraction;
 
 import javax.annotation.Nonnull;
 import java.lang.reflect.Field;
@@ -65,6 +70,14 @@ public class HytaleDevPlugin extends JavaPlugin {
 		return instance.exposureBlockerModelsConfig.get();
 	}
 	
+	public static void reloadConfigs() {
+		assert instance != null;
+		
+		instance.grassGrowthConfig.load();
+		instance.exposureBlockerModelsConfig.load();
+		LOGGER.atInfo().log("Plugin Reloaded!");
+	}
+	
 	@Override
 	protected void setup() {
 		LOGGER.atInfo().log("Hello, Hytale! The development environment is up and running.");
@@ -79,6 +92,14 @@ public class HytaleDevPlugin extends JavaPlugin {
 		// Desactivado por el momento.
 		// getEventRegistry().registerGlobal(EventPriority.NORMAL, ChunkPreLoadProcessEvent.class, this::tickingPreviousBlocks);
 		getCommandRegistry().registerCommand(new LocateBiomeCommand());
+		getCommandRegistry().registerCommand(new ReloadCommand());
+		
+		// WARNING: DEVELOPMENT-ONLY COMMAND! Remove or disable before production builds.
+		// This command allows execution of Gradle tasks from the server and poses a security risk.
+		// DO NOT include in production or public releases.
+		getCommandRegistry().registerCommand(new SyncAssetsCommand());
+		
+		getCodecRegistry(Interaction.CODEC).register("block_info_getter", BlockInfoGetterInteraction.class, BlockInfoGetterInteraction.CODEC);
 		
 		LOGGER.atInfo().log("Ticking CARGADO!");
 	}

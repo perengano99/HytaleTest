@@ -1,0 +1,9 @@
+{
+  "$comment": "Suponiendo que el bloque es Soil_Grass, el bloque puede esparcirse y secarse",
+  "BlockType": {
+    "TickProcedure": {
+      "Type": "pedo_procedure",
+      "Rules": ["test", "test2"]
+    }
+  }
+}

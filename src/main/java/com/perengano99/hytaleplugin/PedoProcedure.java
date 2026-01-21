@@ -30,6 +30,7 @@ import com.perengano99.hytaleplugin.config.GrassGrowthConfig.RuleType;
 import javax.annotation.Nonnull;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 
 public class PedoProcedure extends TickProcedure {
@@ -39,17 +40,12 @@ public class PedoProcedure extends TickProcedure {
 	
 	public static final BuilderCodec<PedoProcedure> CODEC = BuilderCodec.builder(PedoProcedure.class, PedoProcedure::new, TickProcedure.BASE_CODEC)
 			.append(new KeyedCodec<>("Rules", new ArrayCodec<>(Codec.STRING, String[]::new)),
-					(c, v, unused) -> {
-						c.ruleKeys = List.of(v);
-						c.loadRulesFromKeys();
-					},
+					(c, v, unused) -> c.ruleKeys = List.of(v),
 					(c, unused) -> c.ruleKeys.toArray(new String[0]))
 			.add()
 			.build();
 	
 	
-	// Campos cache para no buscar en cada regla.
-	private List<GrowthRule> rules = new ArrayList<>();
 	private List<String> ruleKeys = new ArrayList<>();
 	private int light = -1, sky = -1;
 	private int skyExposure = -1;
@@ -59,27 +55,62 @@ public class PedoProcedure extends TickProcedure {
 	
 	//	@Override
 	public BlockTickStrategy onTick(@Nonnull World world, WorldChunk wc, int x, int y, int z, int blockId) {
-		if (!HytaleDevPlugin.getGrassGrowthConfig().isEnabled()) return BlockTickStrategy.IGNORED;
+		var config = HytaleDevPlugin.getGrassGrowthConfig();
+		if (!config.isEnabled()) return BlockTickStrategy.CONTINUE;
 		
 		IWorldGen worldGen = world.getChunkStore().getGenerator();
 		if (worldGen instanceof ChunkGenerator generator) {
 			reset();
-			
 			Store<EntityStore> store = world.getEntityStore().getStore();
 			WorldTimeResource worldTimeResource = store.getResource(WorldTimeResource.getResourceType());
+			String sourceBlock = BlockType.getAssetMap().getAsset(blockId).getId();
 			
-			byte light = LightRangePredicate.calculateLightValue(wc.getBlockChunk(), x, y, z, worldTimeResource.getSunlightFactor());
-			byte skyLight = (byte) (wc.getBlockChunk().getSkyLight(x, y, z) * worldTimeResource.getSunlightFactor());
-			
+			List<GrowthRule> rules = config.getRules().entrySet().stream()
+					.filter(e -> ruleKeys.contains(e.getKey())).map(Map.Entry::getValue).toList();
 			for (GrowthRule rule : rules) {
 				if (random.nextFloat() > rule.getChance()) continue;
-				if (!checkRuleConditions(rule.getConditions(), world, wc, x, y, z, generator, worldTimeResource)) continue;
+				if (rule.getTargetBlocks().isEmpty()) {
+					LOGGER.atWarning().log("No target blocks were provided for an rule");
+					continue;
+				}
 				
-				if (execute(rule, world, wc, x, y, z, BlockType.getAssetMap().getAsset(blockId).getId()))
-					return BlockTickStrategy.CONTINUE;
+				// Spread Action
+				if (rule.getType() == RuleType.SPREAD) {
+					int dx = random.nextInt(3) - 1;
+					int dy = random.nextInt(3) - 1;
+					int dz = random.nextInt(3) - 1;
+					// No permitir esparcir en (0,0,0), (0,1,0) ni (0,-1,0)
+					if (dx == 0 && dz == 0) continue;
+					
+					int nx = x + dx, ny = y + dy, nz = z + dz;
+					BlockType neighbor = BlockType.getAssetMap().getAsset(world.getBlock(nx, ny, nz));
+					
+					if (!rule.getTargetBlocks().contains(neighbor.getId()) || isCovered(wc, nx, ny, nz))
+						continue;
+					if (checkRuleConditions(rule.getConditions(), world, wc, x, y, z, generator, worldTimeResource))
+						continue;
+					
+					world.setBlock(nx, ny, nz, sourceBlock);
+					LOGGER.atInfo().log("Se esparció un bloque! de " + neighbor.getId() + " a " + sourceBlock);
+				}
+				// Conversion Action
+				else {
+					String targetBlock = rule.getTargetBlocks().get(random.nextInt(rule.getTargetBlocks().size()));
+					int index = BlockType.getAssetMap().getIndex(targetBlock);
+					if (index == Integer.MIN_VALUE) {
+						LOGGER.atWarning().log("Unknown target block in an Rule: " + targetBlock);
+						continue;
+					}
+					if (checkRuleConditions(rule.getConditions(), world, wc, x, y, z, generator, worldTimeResource))
+						continue;
+					
+					world.setBlock(x, y, z, targetBlock);
+					LOGGER.atInfo().log("Se convirtió un bloque! de " + sourceBlock + " a " + targetBlock);
+				}
+				break;
 			}
 		}
-		return BlockTickStrategy.IGNORED;
+		return BlockTickStrategy.CONTINUE;
 	}
 	
 	private void reset() {
@@ -90,51 +121,9 @@ public class PedoProcedure extends TickProcedure {
 		biome       = "-1";
 	}
 	
-	private boolean execute(GrowthRule rule, World world, WorldChunk wc, int x, int y, int z, String block) {
-		switch(rule.getType()) {
-			case RuleType.CONVERSION:
-				if (rule.getTargetBlocks().isEmpty()) {
-					LOGGER.atWarning().log("No target blocks were provided for Conversion Rule");
-					return false;
-				}
-				
-				String targetBlock = rule.getTargetBlocks().get(random.nextInt(rule.getTargetBlocks().size()));
-				int index = BlockType.getAssetMap().getIndex(targetBlock);
-				if (index == Integer.MIN_VALUE) {
-					LOGGER.atWarning().log("Unknown target block! " + targetBlock);
-					return false;
-				}
-				world.setBlock(x, y, z, targetBlock);
-				return true;
-			case RuleType.SPREAD:
-				if (rule.getTargetBlocks().isEmpty()) {
-					LOGGER.atWarning().log("No target blocks were provided for Spread Rule");
-					return false;
-				}
-				
-				int dx = random.nextInt(3) - 1;
-				int dy = random.nextInt(3) - 1;
-				int dz = random.nextInt(3) - 1;
-				// No permitir esparcir en (0,0,0), (0,1,0) ni (0,-1,0)
-				if (dx == 0 && dz == 0) return false;
-				
-				int nx = x + dx, ny = y + dy, nz = z + dz;
-				int neighborId = world.getBlock(nx, ny, nz);
-				BlockType neighbor = BlockType.getAssetMap().getAsset(neighborId);
-				if (rule.getTargetBlocks().contains(neighbor.getId())) {
-					if (isCovered(wc, nx, ny, nz)) return false;
-					world.setBlock(nx, ny, nz, block);
-					return true;
-				}
-				break;
-		}
-		return false;
-	}
-	
 	private boolean checkRuleConditions(GrowthConditions conditions, World world, WorldChunk wc, int x, int y, int z, ChunkGenerator generator,
 	                                    WorldTimeResource worldTimeResource) {
 		boolean pass = true;
-		
 		// Check Light
 		if (conditions.getMinLight() > 0) {
 			if (light == -1) getLight(wc, x, y, z, worldTimeResource);
@@ -167,7 +156,7 @@ public class PedoProcedure extends TickProcedure {
 			pass = conditions.isExcludeBiomes() != conditions.getBiomes().contains(biome);
 		}
 		
-		return pass;
+		return !pass;
 	}
 	
 	private void getLight(WorldChunk wc, int x, int y, int z, WorldTimeResource worldTimeResource) {
@@ -202,13 +191,18 @@ public class PedoProcedure extends TickProcedure {
 	}
 	
 	private boolean isWaterNearby(WorldChunk wc, int x, int y, int z, int radius) {
+		int radiusSq = radius * radius; // Pre-calcula el cuadrado
+		
 		for (int i = x - radius; i <= x + radius; i++) {
 			for (int j = y - radius; j <= y + radius; j++) {
 				for (int k = z - radius; k <= z + radius; k++) {
-					double dist = Math.sqrt(Math.pow(i - x, 2) + Math.pow(j - y, 2) + Math.pow(k - z, 2));
-					if (dist > radius) continue;
-					// getFluidId esta marcado para remover, pero no encontre otra forma de conseguir el fluido.
-					if (Fluid.getAssetMap().getAsset(wc.getFluidId(i, j, k)).getId().equalsIgnoreCase("Water")) return true;
+					// Distancia euclidiana al cuadrado (más rápido que sqrt)
+					double distSq = (i - x) * (i - x) + (j - y) * (j - y) + (k - z) * (k - z);
+					if (distSq > radiusSq) continue;
+					
+					// getFluidId es rápido, úsalo sin miedo aunque esté deprecated por ahora
+					if (Fluid.getAssetMap().getAsset(wc.getFluidId(i, j, k)).getId().equalsIgnoreCase("Water"))
+						return true;
 				}
 			}
 		}
@@ -254,14 +248,5 @@ public class PedoProcedure extends TickProcedure {
 		}
 		
 		return BlockTickStrategy.CONTINUE;
-	}
-	
-	private void loadRulesFromKeys() {
-		this.rules = new ArrayList<>();
-		var config = HytaleDevPlugin.getGrassGrowthConfig();
-		for (String key : ruleKeys) {
-			GrowthRule rule = config.getRule(key);
-			if (rule != null) this.rules.add(rule);
-		}
 	}
 }

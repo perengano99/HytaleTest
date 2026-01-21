@@ -14,7 +14,8 @@
     "Group": "Dirt",
     "Flags": {},
     "TickProcedure": {
-      "Type": "pedo_procedure"
+      "Type": "pedo_procedure",
+      "Rules": ["test"]
     },
     "Gathering": {
       "Breaking": {
@@ -26,9 +27,7 @@
     "BlockSoundSetId": "Gravel",
     "TransitionTexture": "BlockTextures/Transition_Ashes.png",
     "TransitionToGroups": [
-      "Stone",
-      "Lava",
-      "Dirt"
+      "Stone", "Lava", "Dirt"
     ],
     "CubeShadingMode": "Standard",
     "Textures": [
@@ -46,13 +45,10 @@
   "IconProperties": {
     "Scale": 0.58823,
     "Rotation": [
-      22.5,
-      45,
-      22.5
+      22.5, 45, 22.5
     ],
     "Translation": [
-      0,
-      -13.5
+      0, -13.5
     ]
   },
   "Icon": "Icons/ItemsGenerated/Example_Block.png"

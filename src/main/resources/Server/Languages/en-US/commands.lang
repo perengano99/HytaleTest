@@ -1,0 +1,4 @@
+commands.exampleplugin.assettypearg.name = assetSide.
+commands.exampleplugin.assettypearg.usage = "src" -> syncs src resources to ingame.\n"build" -> syncs ingame resources to src project.
+commands.exampleplugin.assettypearg.invalid = Invalid side type: "{input}". Use "src" or "build".
+commands.exampleplugin.syncassets.description = Sync project assets between src or build resources.
