@@ -1,10 +1,18 @@
 package com.perengano99.hytaleplugin;
 
+import com.hypixel.hytale.builtin.blocktick.BlockTickPlugin;
+import com.hypixel.hytale.builtin.buildertools.prefabeditor.PrefabDirtySystems.BlockBreakDirtySystem;
 import com.hypixel.hytale.component.Holder;
 import com.hypixel.hytale.logger.HytaleLogger;
+import com.hypixel.hytale.protocol.BlockNeighbor;
 import com.hypixel.hytale.server.core.asset.type.blocktick.config.TickProcedure;
 import com.hypixel.hytale.server.core.asset.type.blocktype.config.BlockType;
+import com.hypixel.hytale.server.core.event.events.ecs.BreakBlockEvent;
+import com.hypixel.hytale.server.core.event.events.ecs.PlaceBlockEvent;
+import com.hypixel.hytale.server.core.modules.interaction.BlockHarvestUtils;
 import com.hypixel.hytale.server.core.modules.interaction.interaction.config.Interaction;
+import com.hypixel.hytale.server.core.modules.interaction.interaction.config.client.BreakBlockInteraction;
+import com.hypixel.hytale.server.core.modules.interaction.interaction.config.data.TreeCollector;
 import com.hypixel.hytale.server.core.plugin.JavaPlugin;
 import com.hypixel.hytale.server.core.plugin.JavaPluginInit;
 import com.hypixel.hytale.server.core.plugin.PluginBase;
@@ -15,12 +23,13 @@ import com.hypixel.hytale.server.core.universe.world.chunk.section.BlockSection;
 import com.hypixel.hytale.server.core.universe.world.events.ChunkPreLoadProcessEvent;
 import com.hypixel.hytale.server.core.universe.world.storage.ChunkStore;
 import com.hypixel.hytale.server.core.util.Config;
+import com.perengano99.hytaleplugin.blocktick.NaturalGrassTick;
 import com.perengano99.hytaleplugin.commands.LocateBiomeCommand;
 import com.perengano99.hytaleplugin.commands.ReloadCommand;
 import com.perengano99.hytaleplugin.commands.SyncAssetsCommand;
-import com.perengano99.hytaleplugin.config.ExposureBlockerModelsConfig;
-import com.perengano99.hytaleplugin.config.GrassGrowthConfig;
+import com.perengano99.hytaleplugin.config.PluginConfig;
 import com.perengano99.hytaleplugin.interaction.BlockInfoGetterInteraction;
+import com.sun.source.tree.Tree;
 
 import javax.annotation.Nonnull;
 import java.lang.reflect.Field;
@@ -34,8 +43,9 @@ public class HytaleDevPlugin extends JavaPlugin {
 	private static HytaleDevPlugin instance;
 	private static final Path pluginDataDirectory = Path.of("mods/HytaleDevPlugin");
 	
-	private final Config<GrassGrowthConfig> grassGrowthConfig;
-	private final Config<ExposureBlockerModelsConfig> exposureBlockerModelsConfig;
+	//	private final Config<GrassGrowthConfig> grassGrowthConfig;
+	//	private final Config<ExposureBlockerModelsConfig> exposureBlockerModelsConfig;
+	private final Config<PluginConfig> pluginConfig;
 	
 	public HytaleDevPlugin(JavaPluginInit init) {
 		super(init);
@@ -51,8 +61,7 @@ public class HytaleDevPlugin extends JavaPlugin {
 		} catch (NoSuchFieldException | IllegalAccessException e) {
 			throw new RuntimeException(e);
 		}
-		grassGrowthConfig           = withConfig("GrassGrowthConfig", GrassGrowthConfig.CODEC);
-		exposureBlockerModelsConfig = withConfig("ExposureBlockerModelsConfig", ExposureBlockerModelsConfig.CODEC);
+		pluginConfig = withConfig("config", PluginConfig.CODEC);
 		
 		instance = this;
 		LOGGER.atInfo().log("=======================================================");
@@ -60,21 +69,16 @@ public class HytaleDevPlugin extends JavaPlugin {
 		LOGGER.atInfo().log("=======================================================");
 	}
 	
-	public static GrassGrowthConfig getGrassGrowthConfig() {
+	public static PluginConfig getConfig() {
 		assert instance != null;
-		return instance.grassGrowthConfig.get();
-	}
-	
-	public static ExposureBlockerModelsConfig getExposureBlockerModelsConfig() {
-		assert instance != null;
-		return instance.exposureBlockerModelsConfig.get();
+		return instance.pluginConfig.get();
+		PlaceBlockEvent
 	}
 	
 	public static void reloadConfigs() {
 		assert instance != null;
 		
-		instance.grassGrowthConfig.load();
-		instance.exposureBlockerModelsConfig.load();
+		instance.pluginConfig.load();
 		LOGGER.atInfo().log("Plugin Reloaded!");
 	}
 	
@@ -82,13 +86,15 @@ public class HytaleDevPlugin extends JavaPlugin {
 	protected void setup() {
 		LOGGER.atInfo().log("Hello, Hytale! The development environment is up and running.");
 		try {
-			grassGrowthConfig.save();
-			exposureBlockerModelsConfig.save();
+			//			grassGrowthConfig.save();
+			//			exposureBlockerModelsConfig.save();
+			pluginConfig.save();
 		} catch (Exception _) {}
 		
 		//		int dirtId = BlockType.getAssetMap().getIndex("Soil_Dirt");
 		//		this.getEntityStoreRegistry().registerSystem(new GlobalUpdateSystem());
 		TickProcedure.CODEC.register("pedo_procedure", PedoProcedure.class, PedoProcedure.CODEC);
+		
 		// Desactivado por el momento.
 		// getEventRegistry().registerGlobal(EventPriority.NORMAL, ChunkPreLoadProcessEvent.class, this::tickingPreviousBlocks);
 		getCommandRegistry().registerCommand(new LocateBiomeCommand());
@@ -102,6 +108,15 @@ public class HytaleDevPlugin extends JavaPlugin {
 		getCodecRegistry(Interaction.CODEC).register("block_info_getter", BlockInfoGetterInteraction.class, BlockInfoGetterInteraction.CODEC);
 		
 		LOGGER.atInfo().log("Ticking CARGADO!");
+		
+		
+	}
+	
+	@Override
+	protected void start0() {
+		super.start0();
+		
+		NaturalGrassTick.registerTickHandlers();
 	}
 	
 	private void tickingPreviousBlocks(@Nonnull ChunkPreLoadProcessEvent event) {

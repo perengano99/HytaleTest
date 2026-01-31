@@ -13,10 +13,6 @@
     "DrawType": "Cube",
     "Group": "Dirt",
     "Flags": {},
-    "TickProcedure": {
-      "Type": "pedo_procedure",
-      "Rules": ["test"]
-    },
     "Gathering": {
       "Breaking": {
         "GatherType": "Soils"

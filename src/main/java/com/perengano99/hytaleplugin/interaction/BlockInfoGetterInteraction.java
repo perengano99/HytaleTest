@@ -1,5 +1,9 @@
 package com.perengano99.hytaleplugin.interaction;
 
+import com.hypixel.hytale.assetstore.AssetMap;
+import com.hypixel.hytale.builtin.asseteditor.AssetEditorPlugin;
+import com.hypixel.hytale.builtin.asseteditor.assettypehandler.AssetStoreTypeHandler;
+import com.hypixel.hytale.builtin.asseteditor.assettypehandler.JsonTypeHandler;
 import com.hypixel.hytale.codec.builder.BuilderCodec;
 import com.hypixel.hytale.component.CommandBuffer;
 import com.hypixel.hytale.component.Ref;
@@ -10,6 +14,7 @@ import com.hypixel.hytale.protocol.BlockPosition;
 import com.hypixel.hytale.protocol.InteractionType;
 import com.hypixel.hytale.server.core.asset.type.blocktype.config.BlockType;
 import com.hypixel.hytale.server.core.asset.type.blocktype.config.RotationTuple;
+import com.hypixel.hytale.server.core.asset.type.blocktype.config.StateData;
 import com.hypixel.hytale.server.core.entity.InteractionContext;
 import com.hypixel.hytale.server.core.modules.entity.component.TransformComponent;
 import com.hypixel.hytale.server.core.modules.interaction.interaction.CooldownHandler;
@@ -36,6 +41,11 @@ public class BlockInfoGetterInteraction extends SimpleInstantInteraction {
 	protected void firstRun(@Nonnull InteractionType type, @Nonnull InteractionContext context, @Nonnull CooldownHandler cooldownHandler) {
 		CommandBuffer<EntityStore> commandBuffer = context.getCommandBuffer();
 		assert commandBuffer != null;
+		
+//		AssetEditorPlugin.get().getAssetTypeRegistry().getRegisteredAssetTypeHandlers().forEach((k, v) -> LOGGER.atInfo().log(k));
+//		var handlers = AssetEditorPlugin.get().getAssetTypeRegistry().getRegisteredAssetTypeHandlers().get("Item");
+//		var store = ((AssetStoreTypeHandler)handlers).getAssetStore();
+//		store.getAssetMap().getKeysForPack()
 		
 		World world = commandBuffer.getExternalData().getWorld();
 		
@@ -84,5 +94,6 @@ public class BlockInfoGetterInteraction extends SimpleInstantInteraction {
 		info += "\nRotation: [" + rotation.pitch().getDegrees() + ", " + rotation.yaw().getDegrees() + ", " + rotation.roll().getDegrees() + "]";
 		
 		LOGGER.atInfo().log(info);
+//		LOGGER.atInfo().log();
 	}
 }

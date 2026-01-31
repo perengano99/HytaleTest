@@ -4,6 +4,7 @@ import com.hypixel.hytale.component.Ref;
 import com.hypixel.hytale.component.Store;
 import com.hypixel.hytale.server.core.Message;
 import com.hypixel.hytale.server.core.command.system.CommandContext;
+import com.hypixel.hytale.server.core.command.system.arguments.system.OptionalArg;
 import com.hypixel.hytale.server.core.command.system.arguments.system.RequiredArg;
 import com.hypixel.hytale.server.core.command.system.arguments.types.ArgTypes;
 import com.hypixel.hytale.server.core.command.system.basecommands.AbstractPlayerCommand;
@@ -16,12 +17,14 @@ import com.hypixel.hytale.server.core.universe.world.worldgen.IWorldGen;
 import com.hypixel.hytale.server.worldgen.biome.Biome;
 import com.hypixel.hytale.server.worldgen.chunk.ChunkGenerator;
 import com.hypixel.hytale.server.worldgen.chunk.ZoneBiomeResult;
+import com.perengano99.hytaleplugin.WorldZones;
 
 import javax.annotation.Nonnull;
 
 public class LocateBiomeCommand extends AbstractPlayerCommand {
 	
-	RequiredArg<String> biomeArg = this.withRequiredArg("biome", "Nombre del bioma", ArgTypes.STRING);
+	RequiredArg<String> biomeArg = withRequiredArg("biome", "Nombre del bioma", ArgTypes.STRING);
+	OptionalArg<String> zoneArg = withOptionalArg("zone", "Zona la partida", ArgTypes.STRING);
 	
 	public LocateBiomeCommand() {
 		super("locateBiome", "Busca un bioma especifico!");
@@ -30,13 +33,25 @@ public class LocateBiomeCommand extends AbstractPlayerCommand {
 	@Override
 	protected void execute(@Nonnull CommandContext context, @Nonnull Store<EntityStore> store, @Nonnull Ref<EntityStore> ref, @Nonnull PlayerRef playerRef,
 	                       @Nonnull World world) {
-		
 		IWorldGen worldGen = world.getChunkStore().getGenerator();
 		if (worldGen instanceof ChunkGenerator generator) {
 			int seed = (int) world.getWorldConfig().getSeed();
 			Player player = store.getComponent(ref, Player.getComponentType());
 			TransformComponent transform = store.getComponent(ref, TransformComponent.getComponentType());
-			String biomeTarget = biomeArg.get(context);
+			String biomeTarget = biomeArg.get(context).toLowerCase();
+			// Validación de bioma
+			if (!WorldZones.getValidBiomes().contains(biomeTarget)) {
+				player.sendMessage(Message.raw("Bioma inválido: '" + biomeTarget + "'. Usa uno de la lista oficial."));
+				return;
+			}
+			// Validación de zona (si está presente)
+			if (zoneArg.provided(context)) {
+				String zoneTarget = zoneArg.get(context).toLowerCase();
+				if (!WorldZones.getValidZones().contains(zoneTarget)) {
+					player.sendMessage(Message.raw("Zona inválida: '" + zoneTarget + "'. Usa una zona oficial."));
+					return;
+				}
+			}
 			
 			// Configuración chingona
 			long timeoutMs = 60000; // 2.5s antes de cortar
@@ -72,10 +87,12 @@ public class LocateBiomeCommand extends AbstractPlayerCommand {
 						
 						// Consulta directa al generador (MATEMÁTICAS PURAS, sin cargar chunks)
 						ZoneBiomeResult result = generator.getZoneBiomeResultAt(seed, globalX, globalZ);
-						Biome biome = result.getBiome();
+						String zone = result.getZoneResult().getZone().name().toLowerCase();
+						if (zoneArg.provided(context) && !zone.equalsIgnoreCase(zoneArg.get(context).toLowerCase()))
+							continue;
 						
-						if (biome.getName().equalsIgnoreCase(biomeTarget)) {
-							player.sendMessage(Message.raw("Bioma '" + biomeTarget + "' encontrado: [ " + globalX + ", ~, " + globalZ + " ]"));
+						if (result.getBiome().getName().toLowerCase().equalsIgnoreCase(biomeTarget)) {
+							player.sendMessage(Message.raw("Bioma '" + biomeTarget + "' encontrado en '" + zone + "': [ " + globalX + ", ~, " + globalZ + " ]"));
 							return;
 						}
 					}

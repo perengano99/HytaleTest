@@ -31,5 +31,7 @@
       ],
       "RequireNewClick": true
     }
-  }
+  },
+  "MaxStack": 1,
+  "Quality": "Tool"
 }

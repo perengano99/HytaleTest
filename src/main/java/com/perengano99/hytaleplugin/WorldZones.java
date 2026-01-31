@@ -1,5 +1,9 @@
 package com.perengano99.hytaleplugin;
 
+import java.util.HashSet;
+import java.util.Set;
+import java.lang.reflect.Field;
+
 public class WorldZones {
 	
 	public static final String ZONE_OCEANS = "Oceans";
@@ -418,5 +422,42 @@ public class WorldZones {
 		public static final String FOREST_ROOTS = "Forest_Roots";
 		public static final String WASTES_ASH = "Wastes_Ash";
 		public static final String WASTES_LAVA = "Wastes_Lava";
+	}
+	
+	private static final Set<String> VALID_BIOMES = registerBiomes();
+	private static final Set<String> VALID_ZONES = registerZones();
+	
+	private static Set<String> registerBiomes() {
+		Set<String> biomes = new HashSet<>();
+		try {
+			for (Class<?> inner : WorldZones.class.getDeclaredClasses()) {
+				for (Field field : inner.getFields()) {
+					if (field.getType() == String.class) {
+						biomes.add(((String) field.get(null)).toLowerCase());
+					}
+				}
+			}
+		} catch (Exception ignored) {}
+		return biomes;
+	}
+	
+	private static Set<String> registerZones() {
+		Set<String> zones = new HashSet<>();
+		try {
+			for (Field field : WorldZones.class.getFields()) {
+				if (field.getType() == String.class) {
+					zones.add(((String) field.get(null)).toLowerCase());
+				}
+			}
+		} catch (Exception ignored) {}
+		return zones;
+	}
+	
+	public static Set<String> getValidBiomes() {
+		return VALID_BIOMES;
+	}
+	
+	public static Set<String> getValidZones() {
+		return VALID_ZONES;
 	}
 }
