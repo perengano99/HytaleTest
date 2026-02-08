@@ -1,0 +1,39 @@
+{
+  "Model": "Characters/FallingBlock.blockymodel",
+  "HitBox": {
+    "Min": {
+      "X": -0.25,
+      "Y": -0.25,
+      "Z": -0.25
+    },
+    "Max": {
+      "Z": 0.25,
+      "Y": 0.25,
+      "X": 0.25
+    }
+  },
+  "Texture": "Characters/Falling_Block_Missing.png",
+  "PhysicsValues": {
+    "Mass": 100
+  },
+  "MinScale": 1,
+  "MaxScale": 1,
+  "DetailBoxes": {
+    "Block": [
+      {
+        "Box": {
+          "Min": {
+            "X": -0.5,
+            "Y": -0.5,
+            "Z": -0.5
+          },
+          "Max": {
+            "X": 0.5,
+            "Y": 0.5,
+            "Z": 0.5
+          }
+        }
+      }
+    ]
+  }
+}

@@ -2,17 +2,22 @@ package com.perengano99.hytaleplugin;
 
 import com.hypixel.hytale.builtin.blocktick.BlockTickPlugin;
 import com.hypixel.hytale.builtin.buildertools.prefabeditor.PrefabDirtySystems.BlockBreakDirtySystem;
+import com.hypixel.hytale.component.ComponentType;
 import com.hypixel.hytale.component.Holder;
 import com.hypixel.hytale.logger.HytaleLogger;
 import com.hypixel.hytale.protocol.BlockNeighbor;
 import com.hypixel.hytale.server.core.asset.type.blocktick.config.TickProcedure;
 import com.hypixel.hytale.server.core.asset.type.blocktype.config.BlockType;
+import com.hypixel.hytale.server.core.asset.type.model.config.Model;
+import com.hypixel.hytale.server.core.command.commands.world.entity.EntityIntangibleCommand;
 import com.hypixel.hytale.server.core.event.events.ecs.BreakBlockEvent;
 import com.hypixel.hytale.server.core.event.events.ecs.PlaceBlockEvent;
+import com.hypixel.hytale.server.core.modules.collision.CollisionModule;
 import com.hypixel.hytale.server.core.modules.interaction.BlockHarvestUtils;
 import com.hypixel.hytale.server.core.modules.interaction.interaction.config.Interaction;
 import com.hypixel.hytale.server.core.modules.interaction.interaction.config.client.BreakBlockInteraction;
 import com.hypixel.hytale.server.core.modules.interaction.interaction.config.data.TreeCollector;
+import com.hypixel.hytale.server.core.modules.physics.SimplePhysicsProvider;
 import com.hypixel.hytale.server.core.plugin.JavaPlugin;
 import com.hypixel.hytale.server.core.plugin.JavaPluginInit;
 import com.hypixel.hytale.server.core.plugin.PluginBase;
@@ -22,13 +27,19 @@ import com.hypixel.hytale.server.core.universe.world.chunk.ChunkColumn;
 import com.hypixel.hytale.server.core.universe.world.chunk.section.BlockSection;
 import com.hypixel.hytale.server.core.universe.world.events.ChunkPreLoadProcessEvent;
 import com.hypixel.hytale.server.core.universe.world.storage.ChunkStore;
+import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.hypixel.hytale.server.core.util.Config;
+import com.hypixel.hytale.server.npc.NPCPlugin;
+import com.hypixel.hytale.server.npc.systems.FailedSpawnSystem;
+import com.perengano99.hytaleplugin.Component.FallingTreeEntityBlock;
+import com.perengano99.hytaleplugin.System.FallingTreePhysicsSystem;
 import com.perengano99.hytaleplugin.blocktick.NaturalGrassTick;
 import com.perengano99.hytaleplugin.commands.LocateBiomeCommand;
 import com.perengano99.hytaleplugin.commands.ReloadCommand;
 import com.perengano99.hytaleplugin.commands.SyncAssetsCommand;
 import com.perengano99.hytaleplugin.config.PluginConfig;
 import com.perengano99.hytaleplugin.interaction.BlockInfoGetterInteraction;
+import com.perengano99.hytaleplugin.interaction.FallingBlockSpawnInteraction;
 import com.sun.source.tree.Tree;
 
 import javax.annotation.Nonnull;
@@ -46,6 +57,8 @@ public class HytaleDevPlugin extends JavaPlugin {
 	//	private final Config<GrassGrowthConfig> grassGrowthConfig;
 	//	private final Config<ExposureBlockerModelsConfig> exposureBlockerModelsConfig;
 	private final Config<PluginConfig> pluginConfig;
+	
+	private ComponentType<EntityStore, FallingTreeEntityBlock> fallingTreeEntityBlockComponentType;
 	
 	public HytaleDevPlugin(JavaPluginInit init) {
 		super(init);
@@ -72,7 +85,6 @@ public class HytaleDevPlugin extends JavaPlugin {
 	public static PluginConfig getConfig() {
 		assert instance != null;
 		return instance.pluginConfig.get();
-		PlaceBlockEvent
 	}
 	
 	public static void reloadConfigs() {
@@ -80,6 +92,11 @@ public class HytaleDevPlugin extends JavaPlugin {
 		
 		instance.pluginConfig.load();
 		LOGGER.atInfo().log("Plugin Reloaded!");
+	}
+	
+	public static ComponentType<EntityStore, FallingTreeEntityBlock> getFallingTreeEntityBlockComponentType() {
+		assert instance != null;
+		return instance.fallingTreeEntityBlockComponentType;
 	}
 	
 	@Override
@@ -105,12 +122,15 @@ public class HytaleDevPlugin extends JavaPlugin {
 		// DO NOT include in production or public releases.
 		getCommandRegistry().registerCommand(new SyncAssetsCommand());
 		
+		fallingTreeEntityBlockComponentType = getEntityStoreRegistry().registerComponent(FallingTreeEntityBlock.class, FallingTreeEntityBlock::new);
+		
+		getEntityStoreRegistry().registerSystem(new FallingTreePhysicsSystem());
+		
 		getCodecRegistry(Interaction.CODEC).register("block_info_getter", BlockInfoGetterInteraction.class, BlockInfoGetterInteraction.CODEC);
-		
-		LOGGER.atInfo().log("Ticking CARGADO!");
-		
+		getCodecRegistry(Interaction.CODEC).register("falling_block_spawn", FallingBlockSpawnInteraction.class, FallingBlockSpawnInteraction.CODEC);
 		
 	}
+	
 	
 	@Override
 	protected void start0() {

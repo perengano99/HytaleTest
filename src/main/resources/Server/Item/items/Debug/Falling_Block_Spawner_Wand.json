@@ -1,0 +1,37 @@
+{
+  "Utility": {
+    "Usable": true
+  },
+  "Model": "Items/Weapons/Wand/Wood.blockymodel",
+  "Texture": "Items/Weapons/Wand/Wood_Rotten.png",
+  "Icon": "Icons/ItemsGenerated/Block_Info_Getter_Wand.png",
+  "IconProperties": {
+    "Scale": 0.58823,
+    "Rotation": [
+      39,
+      97,
+      13
+    ],
+    "Translation": [
+      -13,
+      -15
+    ]
+  },
+  "UsePlayerAnimations": false,
+  "PlayerAnimationsId": "Pickaxe",
+  "Interactions": {
+    "Secondary": {
+      "Interactions": [
+        {
+          "Type": "falling_block_spawn",
+          "Effects": {
+            "ItemAnimationId": "Mine"
+          }
+        }
+      ],
+      "RequireNewClick": true
+    }
+  },
+  "MaxStack": 1,
+  "Quality": "Tool"
+}

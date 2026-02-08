@@ -1,5 +1,8 @@
 package com.perengano99.hytaleplugin.blocktick;
 
+import com.hypixel.hytale.builtin.hytalegenerator.fields.FastNoiseLite.Vector3;
+import com.hypixel.hytale.component.Holder;
+import com.hypixel.hytale.component.Store;
 import com.hypixel.hytale.logger.HytaleLogger;
 import com.hypixel.hytale.protocol.DrawType;
 import com.hypixel.hytale.server.core.asset.type.blocktick.BlockTickStrategy;
@@ -8,9 +11,13 @@ import com.hypixel.hytale.server.core.asset.type.blocktype.config.BlockType;
 import com.hypixel.hytale.server.core.asset.type.blocktype.config.Rotation;
 import com.hypixel.hytale.server.core.asset.type.blocktype.config.RotationTuple;
 import com.hypixel.hytale.server.core.asset.type.fluid.Fluid;
+import com.hypixel.hytale.server.core.modules.entity.component.TransformComponent;
 import com.hypixel.hytale.server.core.modules.time.WorldTimeResource;
 import com.hypixel.hytale.server.core.universe.world.World;
 import com.hypixel.hytale.server.core.universe.world.chunk.WorldChunk;
+import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
+import com.hypixel.hytale.server.npc.NPCPlugin;
+import com.hypixel.hytale.server.npc.commands.NPCCommandUtils;
 import com.hypixel.hytale.server.spawning.util.LightRangePredicate;
 import com.hypixel.hytale.server.worldgen.chunk.ChunkGenerator;
 import com.hypixel.hytale.server.worldgen.chunk.ZoneBiomeResult;
@@ -48,40 +55,44 @@ public class NaturalGrassTick extends TickProcedure {
 		var config = HytaleDevPlugin.getConfig().getGrassConfig();
 		if (!config.isEnabled() || getRandom().nextFloat() > config.getProcessChance() / 100) return BlockTickStrategy.CONTINUE;
 		
+		
 		String block = BlockType.getAssetMap().getAsset(blockId).getId();
 		
-		if (grassBlocks.contains(block)) {
-			if (config.grassExposureDecay() && isCovered(config, wc, x, y, z)) {
-				world.setBlock(x, y, z, getDirtFromGrass(block));
-				return BlockTickStrategy.CONTINUE;
-			}
-			
-			if (!block.equals("Soil_Grass_Dry")) {
-				if (config.grassZone2Dry() && !block.equals("Soil_Grass_Wet")) {
-					if (world.getChunkStore().getGenerator() instanceof ChunkGenerator generator) {
-						int seed = (int) world.getWorldConfig().getSeed();
-						ZoneBiomeResult result = generator.getZoneBiomeResultAt(seed, x, z);
-						if (result.getZoneResult().getZone().name().startsWith("Zone2_")) {
-							world.setBlock(x, y, z, "Soil_Grass_Dry");
-							return BlockTickStrategy.CONTINUE;
-						}
-					}
+		world.execute(() -> {
+			if (grassBlocks.contains(block)) {
+				if (config.grassExposureDecay() && isCovered(config, wc, x, y, z)) {
+					world.setBlock(x, y, z, getDirtFromGrass(block));
+					return;
 				}
 				
-				WorldTimeResource worldTimeResource = world.getEntityStore().getStore().getResource(WorldTimeResource.getResourceType());
-				if (getLight(wc, x, y, z, worldTimeResource) < config.getMinSkyPercent()) return BlockTickStrategy.CONTINUE;
-				
-				int dx = getRandom().nextInt(3) - 1;
-				int dy = getRandom().nextInt(3) - 1;
-				int dz = getRandom().nextInt(3) - 1;
-				if (dx == 0 && dz == 0) return BlockTickStrategy.CONTINUE;
-				
-				int nx = x + dx, ny = y + dy, nz = z + dz;
-				String neighbor = BlockType.getAssetMap().getAsset(world.getBlock(nx, ny, nz)).getId();
-				if (canSpread(block, neighbor) && getLight(wc, nx, ny, nz, worldTimeResource) >= config.getMinSkyPercent() / 1.5f && !isCovered(config, wc, nx, ny, nz))
-					world.setBlock(nx, ny, nz, block);
+				if (!block.equals("Soil_Grass_Dry")) {
+					if (config.grassZone2Dry() && !block.equals("Soil_Grass_Wet")) {
+						if (world.getChunkStore().getGenerator() instanceof ChunkGenerator generator) {
+							int seed = (int) world.getWorldConfig().getSeed();
+							ZoneBiomeResult result = generator.getZoneBiomeResultAt(seed, x, z);
+							if (result.getZoneResult().getZone().name().startsWith("Zone2_")) {
+								world.setBlock(x, y, z, "Soil_Grass_Dry");
+								return;
+							}
+						}
+					}
+					
+					WorldTimeResource worldTimeResource = world.getEntityStore().getStore().getResource(WorldTimeResource.getResourceType());
+					if (getLight(wc, x, y, z, worldTimeResource) < config.getMinSkyPercent()) return;
+					
+					int dx = getRandom().nextInt(3) - 1;
+					int dy = getRandom().nextInt(3) - 1;
+					int dz = getRandom().nextInt(3) - 1;
+					if (dx == 0 && dz == 0) return;
+					
+					int nx = x + dx, ny = y + dy, nz = z + dz;
+					String neighbor = BlockType.getAssetMap().getAsset(world.getBlock(nx, ny, nz)).getId();
+					if (canSpread(block, neighbor) && getLight(wc, nx, ny, nz, worldTimeResource) >= config.getMinSkyPercent() / 1.5f && !isCovered(config, wc, nx, ny, nz))
+						world.setBlock(nx, ny, nz, block);
+				}
 			}
-		}
+		});
+		
 		return BlockTickStrategy.CONTINUE;
 	}
 	

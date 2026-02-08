@@ -42,11 +42,6 @@ public class BlockInfoGetterInteraction extends SimpleInstantInteraction {
 		CommandBuffer<EntityStore> commandBuffer = context.getCommandBuffer();
 		assert commandBuffer != null;
 		
-//		AssetEditorPlugin.get().getAssetTypeRegistry().getRegisteredAssetTypeHandlers().forEach((k, v) -> LOGGER.atInfo().log(k));
-//		var handlers = AssetEditorPlugin.get().getAssetTypeRegistry().getRegisteredAssetTypeHandlers().get("Item");
-//		var store = ((AssetStoreTypeHandler)handlers).getAssetStore();
-//		store.getAssetMap().getKeysForPack()
-		
 		World world = commandBuffer.getExternalData().getWorld();
 		
 		int x, y, z;
@@ -94,6 +89,5 @@ public class BlockInfoGetterInteraction extends SimpleInstantInteraction {
 		info += "\nRotation: [" + rotation.pitch().getDegrees() + ", " + rotation.yaw().getDegrees() + ", " + rotation.roll().getDegrees() + "]";
 		
 		LOGGER.atInfo().log(info);
-//		LOGGER.atInfo().log();
 	}
 }
