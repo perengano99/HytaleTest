@@ -20,14 +20,16 @@ import com.perengano99.hytaleplugin.HytaleDevPlugin;
 import com.perengano99.hytaleplugin.TreePhysicsProvider;
 
 import javax.annotation.Nonnull;
+import java.util.ArrayList;
+import java.util.List;
 
 public class FallingBlockSpawnInteraction extends SimpleInstantInteraction {
 	
 	public static final BuilderCodec<FallingBlockSpawnInteraction> CODEC = BuilderCodec.builder(
-		FallingBlockSpawnInteraction.class,
-		FallingBlockSpawnInteraction::new,
-		FallingBlockSpawnInteraction.ABSTRACT_CODEC
-	).build();
+			FallingBlockSpawnInteraction.class,
+			FallingBlockSpawnInteraction::new,
+			FallingBlockSpawnInteraction.ABSTRACT_CODEC
+	                                                                                           ).build();
 	
 	@Override
 	protected void firstRun(@Nonnull InteractionType type, @Nonnull InteractionContext context, @Nonnull CooldownHandler cooldownHandler) {
@@ -49,16 +51,17 @@ public class FallingBlockSpawnInteraction extends SimpleInstantInteraction {
 			BlockType btype = world.getBlockType(x, y, z);
 			if (btype == null) return;
 			
+			// El pivote será la base del árbol (justo encima del bloque clickeado)
 			Vector3d pivotPos = new Vector3d(x + 0.5, y + 1.5, z + 0.5);
 			
-			// Dirección de caída aleatoria (permitiendo diagonales)
+			// Dirección de caída aleatoria
 			double randomAngle = Math.random() * Math.PI * 2;
 			double randomDiagonal = Math.random();
 			
 			Vector3d fallDirection = new Vector3d(
-				Math.cos(randomAngle) * randomDiagonal,
-				0,
-				Math.sin(randomAngle) * randomDiagonal
+					Math.cos(randomAngle) * randomDiagonal,
+					0,
+					Math.sin(randomAngle) * randomDiagonal
 			);
 			
 			if (fallDirection.length() > 1e-6) {
@@ -67,49 +70,73 @@ public class FallingBlockSpawnInteraction extends SimpleInstantInteraction {
 				fallDirection = new Vector3d(0, 0, 1);
 			}
 			
-			// 1. Crear entidad ROOT
+			// 1. Crear entidad ROOT (La base del tronco)
 			Holder<EntityStore> rootHolder = FallingTreeEntityBlock.createRoot(
-				TreeBlockType.TRUNK,
-				btype.getId(),
-				pivotPos,
-				fallDirection
-			);
+					TreeBlockType.TRUNK,
+					btype.getId(),
+					pivotPos,
+					fallDirection
+			                                                                  );
 			
-			rootHolder.addComponent(DespawnComponent.getComponentType(),
-				DespawnComponent.despawnInSeconds(store.getResource(TimeResource.getResourceType()), 30));
-			rootHolder.addComponent(NetworkId.getComponentType(),
-				new NetworkId(store.getExternalData().takeNextNetworkId()));
+			setupEntityComponents(store, rootHolder);
 			
 			Ref<EntityStore> rootRef = store.addEntity(rootHolder, AddReason.SPAWN);
 			FallingTreeEntityBlock rootEntity = rootHolder.getComponent(
-				HytaleDevPlugin.getFallingTreeEntityBlockComponentType()
-			);
+					HytaleDevPlugin.getFallingTreeEntityBlockComponentType()
+			                                                           );
 			
-			// Crear el TreePhysicsProvider para gestionar la física del árbol completo
+			// Crear el TreePhysicsProvider
 			TreePhysicsProvider physicsProvider = new TreePhysicsProvider(rootRef, pivotPos, fallDirection);
 			
-			// Asignar el provider al ROOT
 			if (rootEntity != null) {
 				rootEntity.setTreePhysicsProvider(physicsProvider);
 			}
 			
-			// 2. Crear entidades CHILD - Tronco principal
-			for (int i = 2; i < 8; i++) {
-				Vector3d childPos = new Vector3d(x + 0.5, y + i + 0.5, z + 0.5);
+			// Definir la estructura del árbol (Offsets relativos al pivote)
+			List<Vector3d> treeStructure = new ArrayList<>();
+			
+			// --- Tronco Central (Altura 5) ---
+			for (int h = 1; h <= 5; h++) {
+				treeStructure.add(new Vector3d(0, h, 0));
+			}
+			
+			// --- Ramas Bajas (Cruz en altura 3) ---
+			treeStructure.add(new Vector3d(1, 3, 0));
+			treeStructure.add(new Vector3d(-1, 3, 0));
+			treeStructure.add(new Vector3d(0, 3, 1));
+			treeStructure.add(new Vector3d(0, 3, -1));
+			
+			// --- Ramas Medias (Diagonales en altura 4) ---
+			treeStructure.add(new Vector3d(1, 4, 1));
+			treeStructure.add(new Vector3d(-1, 4, -1));
+			treeStructure.add(new Vector3d(1, 4, -1));
+			treeStructure.add(new Vector3d(-1, 4, 1));
+			// Extensión de ramas medias
+			treeStructure.add(new Vector3d(2, 4, 0));
+			treeStructure.add(new Vector3d(-2, 4, 0));
+			
+			// --- Copa (Cruz pequeña en altura 5) ---
+			treeStructure.add(new Vector3d(1, 5, 0));
+			treeStructure.add(new Vector3d(-1, 5, 0));
+			treeStructure.add(new Vector3d(0, 5, 1));
+			treeStructure.add(new Vector3d(0, 5, -1));
+			treeStructure.add(new Vector3d(0, 6, 0)); // Punta
+			
+			// 2. Generar entidades CHILD basadas en la estructura
+			for (Vector3d offset : treeStructure) {
+				// Calcular posición absoluta en el mundo
+				Vector3d childPos = pivotPos.clone().add(offset);
 				
 				Holder<EntityStore> childHolder = FallingTreeEntityBlock.createChild(
-					TreeBlockType.TRUNK,
-					btype.getId(),
-					childPos,
-					fallDirection,
-					rootRef,
-					pivotPos
-				);
+						TreeBlockType.TRUNK, // Usamos TRUNK para todo para ver la estructura de madera
+						btype.getId(),
+						childPos,
+						fallDirection,
+						rootRef,
+						pivotPos
+				                                                                    );
 				
-				childHolder.addComponent(DespawnComponent.getComponentType(),
-					DespawnComponent.despawnInSeconds(store.getResource(TimeResource.getResourceType()), 30));
-				childHolder.addComponent(NetworkId.getComponentType(),
-					new NetworkId(store.getExternalData().takeNextNetworkId()));
+				setupEntityComponents(store, childHolder);
 				
 				Ref<EntityStore> childRef = store.addEntity(childHolder, AddReason.SPAWN);
 				
@@ -117,54 +144,20 @@ public class FallingBlockSpawnInteraction extends SimpleInstantInteraction {
 				physicsProvider.addChild(childRef);
 				
 				FallingTreeEntityBlock childEntity = childHolder.getComponent(
-					HytaleDevPlugin.getFallingTreeEntityBlockComponentType()
-				);
+						HytaleDevPlugin.getFallingTreeEntityBlockComponentType()
+				                                                             );
 				if (childEntity != null) {
 					childEntity.setTreePhysicsProvider(physicsProvider);
 				}
 			}
-			
-			// Ramas hacia los lados (simulando copa del árbol)
-			for (int ramo = 0; ramo < 3; ramo++) {
-				for (int i = 4; i < 7; i++) {
-					for (int j = 1; j <= 3; j++) {
-						Vector3d childPos;
-						if (ramo == 0) {
-							childPos = new Vector3d(x + 0.5 - j, y + i + 0.5, z + 0.5 - j);
-						} else if (ramo == 1) {
-							childPos = new Vector3d(x + 0.5 - j, y + i + 0.5, z + 0.5 + j);
-						} else {
-							childPos = new Vector3d(x + 0.5 + j, y + i + 0.5, z + 0.5 - j);
-						}
-						
-						Holder<EntityStore> childHolder = FallingTreeEntityBlock.createChild(
-							TreeBlockType.TRUNK,
-							btype.getId(),
-							childPos,
-							fallDirection,
-							rootRef,
-							pivotPos
-						);
-						
-						childHolder.addComponent(DespawnComponent.getComponentType(),
-							DespawnComponent.despawnInSeconds(store.getResource(TimeResource.getResourceType()), 30));
-						childHolder.addComponent(NetworkId.getComponentType(),
-							new NetworkId(store.getExternalData().takeNextNetworkId()));
-						
-						Ref<EntityStore> childRef = store.addEntity(childHolder, AddReason.SPAWN);
-						
-						// Agregar al provider
-						physicsProvider.addChild(childRef);
-						
-						FallingTreeEntityBlock childEntity = childHolder.getComponent(
-							HytaleDevPlugin.getFallingTreeEntityBlockComponentType()
-						);
-						if (childEntity != null) {
-							childEntity.setTreePhysicsProvider(physicsProvider);
-						}
-					}
-				}
-			}
 		});
+	}
+	
+	// Helper para no repetir código de componentes comunes
+	private void setupEntityComponents(Store<EntityStore> store, Holder<EntityStore> holder) {
+		holder.addComponent(DespawnComponent.getComponentType(),
+				DespawnComponent.despawnInSeconds(store.getResource(TimeResource.getResourceType()), 60)); // 60 segs para admirar el desastre
+		holder.addComponent(NetworkId.getComponentType(),
+				new NetworkId(store.getExternalData().takeNextNetworkId()));
 	}
 }
