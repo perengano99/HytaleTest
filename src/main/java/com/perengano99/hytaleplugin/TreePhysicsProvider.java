@@ -32,199 +32,240 @@ public class TreePhysicsProvider implements IBlockCollisionConsumer {
 	private static final HytaleLogger LOGGER = HytaleLogger.forEnclosingClass();
 	
 	// Constantes de física
-	private static final float ANGULAR_ACCELERATION = 0.8f; // radianes/segundo²
+	private static final float GRAVITY = 20.0f; // Gravedad ajustada para objetos pesados (árboles)
+	private static final float AIR_RESISTANCE = 0.995f; // Fricción del aire muy leve
+	private static final float TORQUE_FACTOR = 0.05f; // Factor para controlar velocidad de rotación (más bajo = más lento)
 	
 	// Estado del árbol
 	private float currentAngle = 0f;
-	private float angularVelocity = 0.5f;
+	private float angularVelocity = 0.0f; // Empieza quieto, la gravedad lo moverá
+	private float massFactor; // Distancia al centro de masa
+	private float verticalVelocity = 0.0f; // Velocidad de caída del pivote
+	
+	// Sistema de APOYO
+	private boolean isSupported = false; // ¿El árbol está apoyado en un bloque sólido?
+	@Nullable private Vector3d supportContactPoint = null; // Punto de contacto de apoyo
+	@Nullable private Vector3d supportContactNormal = null; // Normal del bloque de apoyo
 	
 	// Datos compartidos
-	@Nonnull
-	private Vector3d pivotPoint;
+	@Nonnull private Vector3d pivotPoint;
+	@Nonnull private Vector3d direction;
 	
-	@Nonnull
-	private Vector3d direction;
+	// Referencias
+	@Nonnull private Ref<EntityStore> rootRef;
+	@Nonnull private List<Ref<EntityStore>> childrenRefs;
 	
-	// Referencias del árbol
-	@Nonnull
-	private Ref<EntityStore> rootRef;
-	
-	@Nonnull
-	private List<Ref<EntityStore>> childrenRefs;
-	
-	// Estado de física
+	// Estado
 	private boolean isActive = true;
 	private boolean isResting = false;
 	
-	// Detección de colisiones con bloques
-	@Nonnull
-	private BlockCollisionProvider blockCollisionProvider;
+	// Colisiones
+	@Nonnull private BlockCollisionProvider blockCollisionProvider;
+	@Nonnull private BlockTracker triggerTracker;
 	
-	@Nonnull
-	private BlockTracker triggerTracker;
+	// Estado de colisión TEMPORAL por entidad (se resetea en cada tick)
+	private boolean tempHasCollided = false;
+	@Nullable private Vector3d tempCollisionPoint;
+	@Nullable private Vector3d tempCollisionNormal;
+	private double tempCollisionStart = 1.0;
 	
-	private boolean hasCollided = false;
+	// Contador de bloques que colisionaron este tick
+	private int collidingBlocksCount = 0;
+	private int thisTickSupportingBlocks = 0; // Contador de apoyo detectado ESTE tick
+	private int processedChildrenThisTick = 0; // Cuenta cuántos hijos se han procesado
+	private static final int MIN_COLLISIONS_TO_REST = 3; // Mínimo de bloques colisionando para considerar reposo
 	
-	@Nullable
-	private Vector3d collisionPoint;
 	
-	@Nullable
-	private Vector3d collisionNormal;
-	
-	// Almacenar posición anterior del ROOT para calcular movimiento
-	@Nullable
-	private Vector3d previousRootPosition;
-	
-	public TreePhysicsProvider(@Nonnull Ref<EntityStore> rootRef, @Nonnull Vector3d pivotPoint, @Nonnull Vector3d direction) {
-		this.rootRef = rootRef;
-		this.pivotPoint = pivotPoint.clone();
-		this.direction = direction.normalize();
+	public TreePhysicsProvider(@Nonnull Ref<EntityStore> rootRef, @Nonnull Vector3d pivotPoint, @Nonnull Vector3d direction, @Nonnull Vector3d centerOfMassOffset) {
+		this.rootRef      = rootRef;
+		this.pivotPoint   = pivotPoint.clone();
+		this.direction    = direction.normalize();
 		this.childrenRefs = new ArrayList<>();
-		this.currentAngle = 0f;
-		this.angularVelocity = 0.5f;
 		
-		// Inicializar collision providers
+		// Configuración inicial
+		this.currentAngle    = 0.05f; // Le damos un empujoncito inicial pequeño (aprox 3 grados) para que la gravedad actúe
+		this.angularVelocity = 0.0f;
+		
+		// Calcular "brazo de palanca" (Distancia del pivote al centro de masa)
+		// Simplificación: Usamos la magnitud del vector offset
+		this.massFactor = (float) centerOfMassOffset.length();
+		
 		this.blockCollisionProvider = new BlockCollisionProvider();
 		this.blockCollisionProvider.setRequestedCollisionMaterials(6);
 		this.blockCollisionProvider.setReportOverlaps(true);
 		this.triggerTracker = new BlockTracker();
 	}
 	
-	/**
-	 * Añade una referencia de hijo a este proveedor de física.
-	 */
 	public void addChild(@Nonnull Ref<EntityStore> childRef) {
 		childrenRefs.add(childRef);
 	}
 	
-	/**
-	 * Obtiene todas las referencias de hijos.
-	 */
 	@Nonnull
 	public List<Ref<EntityStore>> getChildren() {
 		return childrenRefs;
 	}
 	
-	/**
-	 * Actualiza la física y posición del ROOT.
-	 * Contiene toda la lógica de cálculo de ángulos y rotación.
-	 */
 	public void updateRoot(float dt, FallingTreeEntityBlock rootEntity, TransformComponent rootTransform, @Nullable World world, @Nullable BoundingBox boundingBox) {
-		// Actualizar la física
-		updatePhysics(dt);
+		// Resetear contadores de colisión THIS TICK
+		collidingBlocksCount = 0;
+		processedChildrenThisTick = 0;
+		thisTickSupportingBlocks = 0;  // Contar apoyo ESTE tick
 		
-		// Detectar colisiones si el mundo y bounding box están disponibles
+		// PRIMERO: Detectar colisiones del ROOT
 		if (world != null && boundingBox != null && isActive) {
-			detectCollisions(rootEntity, rootTransform, world, boundingBox);
+			boolean rootCollided = detectCollisions(rootEntity, rootTransform, world, boundingBox);
+			if (rootCollided) {
+				collidingBlocksCount++;
+				
+				// Si colisiona, verificar si es un bloque de apoyo (normal hacia arriba)
+				if (tempCollisionNormal != null && tempCollisionNormal.y > 0.7) {
+					thisTickSupportingBlocks++;
+					supportContactPoint = tempCollisionPoint != null ? new Vector3d(tempCollisionPoint) : null;
+					supportContactNormal = new Vector3d(tempCollisionNormal);
+					LOGGER.atInfo().log("[ROOT COLLISION] APOYO DETECTADO - Normal: (%f, %f, %f)",
+						supportContactNormal.x, supportContactNormal.y, supportContactNormal.z);
+				}
+			}
 		}
 		
-		// Calcular rotación basada en la dirección y el ángulo
-		Vector3f rootRotation = calculateRotation(direction, currentAngle);
+		// SEGUNDO: Establecer estado de apoyo basado en apoyo detectado THIS TICK
+		isSupported = thisTickSupportingBlocks > 0;
 		
-		// Actualizar posición y rotación del ROOT
+		// TERCERO: Actualizar física
+		updatePhysics(dt);
+		
+		Vector3f rootRotation = calculateRotation(direction, currentAngle);
 		rootTransform.setPosition(pivotPoint);
 		rootTransform.setRotation(rootRotation);
 	}
 	
-	/**
-	 * Actualiza la posición y rotación de un CHILD basándose en el estado actual del ROOT.
-	 */
 	public void updateChild(FallingTreeEntityBlock childEntity, TransformComponent childTransform, @Nullable World world, @Nullable BoundingBox boundingBox) {
-		// Detectar colisiones para este CHILD si el mundo y bounding box están disponibles
-		if (world != null && boundingBox != null && isActive) {
-			detectCollisions(childEntity, childTransform, world, boundingBox);
-		}
-		
-		// Calcular rotación
-		Vector3f rotation = calculateRotation(direction, currentAngle);
+		// Incrementar contador de hijos procesados
+		processedChildrenThisTick++;
 		
 		// Calcular nueva posición rotada
-		Vector3d newChildPos = rotateAroundPivot(
-			childEntity.getOffsetFromPivot(),
-			pivotPoint,
-			direction,
-			currentAngle
-		);
+		Vector3f rotation = calculateRotation(direction, currentAngle);
+		Vector3d newChildPos = rotateAroundPivot(childEntity.getOffsetFromPivot(), pivotPoint, direction, currentAngle);
 		
-		// Aplicar posición y rotación
+		// Detectar colisión ANTES de aplicar la posición
+		if (world != null && boundingBox != null && isActive) {
+			boolean childCollided = detectCollisions(childEntity, childTransform, world, boundingBox);
+			if (childCollided) {
+				collidingBlocksCount++;
+				
+				// Verificar si es un bloque de apoyo (normal apunta hacia arriba)
+				if (tempCollisionNormal != null && tempCollisionNormal.y > 0.7) {
+					thisTickSupportingBlocks++;  // Usar el contador THIS TICK
+					
+					// Guardar el punto de contacto más bajo (mejor apoyo)
+					if (supportContactPoint == null && tempCollisionPoint != null) {
+						supportContactPoint = new Vector3d(tempCollisionPoint);
+					} else if (supportContactPoint != null && tempCollisionPoint != null && tempCollisionPoint.y > supportContactPoint.y) {
+						supportContactPoint = new Vector3d(tempCollisionPoint);
+					}
+					supportContactNormal = new Vector3d(tempCollisionNormal);
+					
+					LOGGER.atInfo().log("[CHILD COLLISION] APOYO DETECTADO - thisTickSupports=%d",
+						thisTickSupportingBlocks);
+				}
+				
+				// Ajustar posición para no atravesar
+				if (tempCollisionNormal != null) {
+					newChildPos.add(
+							tempCollisionNormal.x * 0.1,
+							tempCollisionNormal.y * 0.1,
+							tempCollisionNormal.z * 0.1
+					);
+				}
+			}
+		}
+		
+		// Aplicar transformaciones
 		childTransform.setPosition(newChildPos);
 		childTransform.setRotation(rotation);
 	}
 	
 	/**
-	 * Detecta colisiones con bloques del mundo.
-	 * Solo el ROOT detecta colisiones; cuando impacta, todo el árbol se detiene.
+	 * Detecta colisiones para una entidad individual.
+	 *
+	 * @return true si hubo colisión, false en caso contrario
 	 */
-	private void detectCollisions(FallingTreeEntityBlock entity, TransformComponent transform, @Nonnull World world, @Nonnull BoundingBox boundingBox) {
-//		// Solo el ROOT detecta colisiones
-//		if (!entity.isRoot()) {
-//			return;
-//		}
-		
-		hasCollided = false;
-		collisionPoint = null;
-		collisionNormal = null;
+	private boolean detectCollisions(FallingTreeEntityBlock entity, TransformComponent transform, @Nonnull World world, @Nonnull BoundingBox boundingBox) {
+		// Resetear estado temporal de colisión
+		tempHasCollided     = false;
+		tempCollisionPoint  = null;
+		tempCollisionNormal = null;
+		tempCollisionStart  = 1.0;
 		
 		Vector3d currentPos = transform.getPosition();
-		// Movimiento pequeño hacia abajo para detectar colisiones
-		Vector3d movement = new Vector3d(0, -0.1, 0);
 		
-		// Realizar raycast de colisiones con bloques
-		blockCollisionProvider.cast(
-			world,
-			boundingBox.getBoundingBox(),
-			currentPos,
-			movement,
-			this,
-			triggerTracker,
-			1.0 // maxRelativeDistance
+		// Calcular movimiento predicho para el próximo tick
+		// Usamos un vector de movimiento CONSTANTE hacia abajo para siempre detectar el suelo
+		// Más componentes horizontales basados en la dirección de caída y rotación actual
+		double horizontalSpeed = Math.max(Math.abs(angularVelocity) * 2.0, 0.5); // Mínimo 0.5
+		double verticalSpeed = Math.max(verticalVelocity, 1.0); // Mínimo 1.0 para siempre buscar hacia abajo
+		
+		Vector3d movement = new Vector3d(
+				direction.x * horizontalSpeed,  // Movimiento horizontal en dirección de caída
+				-verticalSpeed,                 // Siempre buscar hacia abajo (mínimo 1 bloque)
+				direction.z * horizontalSpeed   // Movimiento horizontal en dirección de caída
 		);
 		
-		// Si hay colisión, detener la caída
-		if (hasCollided) {
-			isActive = false;
-			isResting = true;
-			angularVelocity = 0;
-		}
+		// Log para debug: verificar que se está ejecutando
+		LOGGER.atInfo().log("Detectando colisión - Pos: (%f, %f, %f), Movement: (%f, %f, %f)",
+				currentPos.x, currentPos.y, currentPos.z,
+				movement.x, movement.y, movement.z);
+		
+		// Realizar el cast de colisión (SIEMPRE, sin optimización que podría fallar)
+		blockCollisionProvider.cast(world, boundingBox.getBoundingBox(), currentPos, movement, this, triggerTracker, 1.0);
+		
+		LOGGER.atInfo().log("Resultado detección: hasCollided=%b", tempHasCollided);
+		
+		return tempHasCollided;
 	}
 	
+
 	/**
 	 * Implementación de IBlockCollisionConsumer.onCollision()
 	 * Se invoca para cada bloque que colisiona durante el raycast.
 	 */
 	@Nonnull
 	@Override
-	public IBlockCollisionConsumer.Result onCollision(
-			int blockX,
-			int blockY,
-			int blockZ,
-			@Nonnull Vector3d direction,
-			@Nonnull BlockContactData contactData,
-			@Nonnull BlockData blockData,
-			@Nonnull Box collider
-	) {
-		BlockMaterial blockMaterial = blockData.getBlockType().getMaterial();
-		
-		// Solo detectar colisiones con bloques sólidos
-		if (blockMaterial == BlockMaterial.Solid && !contactData.isOverlapping()) {
-			// Registrar la colisión
-			hasCollided = true;
-			collisionPoint = new Vector3d(contactData.getCollisionPoint());
-			collisionNormal = new Vector3d(contactData.getCollisionNormal());
-			
-			// Detener búsqueda de más colisiones
-			return IBlockCollisionConsumer.Result.STOP;
+	public IBlockCollisionConsumer.Result onCollision(int blockX, int blockY, int blockZ, @Nonnull Vector3d direction, @Nonnull BlockContactData contactData,
+	                                                  @Nonnull BlockData blockData, @Nonnull Box collider) {
+		// Verificar que el bloque sea sólido
+		if (blockData.getBlockType() == null) {
+			return IBlockCollisionConsumer.Result.CONTINUE;
 		}
 		
-		// Continuar buscando más colisiones
+		BlockMaterial blockMaterial = blockData.getBlockType().getMaterial();
+		
+		// Solo considerar colisiones con bloques sólidos
+		if (blockMaterial == BlockMaterial.Solid) {
+			// Verificar que no sea un overlap (ya dentro del bloque)
+			if (!contactData.isOverlapping()) {
+				// Verificar que estamos acercándonos al bloque, no alejándonos
+				double surfaceAlignment = direction.dot(contactData.getCollisionNormal());
+				if (surfaceAlignment < 0.0) {
+					// Registrar la colisión más cercana
+					double collisionStart = contactData.getCollisionStart();
+					if (collisionStart < tempCollisionStart) {
+						tempHasCollided     = true;
+						tempCollisionPoint  = new Vector3d(contactData.getCollisionPoint());
+						tempCollisionNormal = new Vector3d(contactData.getCollisionNormal());
+						tempCollisionStart  = collisionStart;
+					}
+				}
+			}
+		}
+		
+		// Continuar buscando más colisiones para encontrar la más cercana
 		return IBlockCollisionConsumer.Result.CONTINUE;
 	}
 	
 	@Nonnull
 	@Override
-	public IBlockCollisionConsumer.Result probeCollisionDamage(
-			int blockX, int blockY, int blockZ, Vector3d direction, BlockContactData collisionData, BlockData blockData
-	) {
+	public IBlockCollisionConsumer.Result probeCollisionDamage(int blockX, int blockY, int blockZ, Vector3d direction, BlockContactData collisionData, BlockData blockData) {
 		return IBlockCollisionConsumer.Result.CONTINUE;
 	}
 	
@@ -244,8 +285,7 @@ public class TreePhysicsProvider implements IBlockCollisionConsumer {
 	
 	/**
 	 * Actualiza la física del árbol completo.
-	 * Calcula el nuevo ángulo y velocidad angular basado en la aceleración.
-	 * La rotación continúa hasta que hay colisión.
+	 * Aplica aceleración gravitacional real y torque para rotación.
 	 */
 	private void updatePhysics(float dt) {
 		if (!isActive) {
@@ -253,88 +293,62 @@ public class TreePhysicsProvider implements IBlockCollisionConsumer {
 			return;
 		}
 		
-		// Aplicar aceleración angular
-		float newAngularVel = angularVelocity + ANGULAR_ACCELERATION * dt;
-		angularVelocity = newAngularVel;
+		// 1. GRAVEDAD REAL: Aceleración constante hacia abajo
+		// v = v0 + a*t  (la velocidad aumenta con el tiempo)
+		verticalVelocity += GRAVITY * dt;
 		
-		// Integración: deltaAngle = v*dt + 0.5*a*dt²
-		float deltaAngle = angularVelocity * dt + 0.5f * ANGULAR_ACCELERATION * dt * dt;
-		float newAngle = currentAngle + deltaAngle;
+		// Aplicar caída al pivote (desplazamiento con aceleración)
+		pivotPoint.y -= verticalVelocity * dt;
 		
-		currentAngle = newAngle;
+		// 2. Calcular Torque (Fuerza de giro) con factor de control
+		// Torque = Gravedad * Distancia_CoM * sin(Angulo) * TORQUE_FACTOR
+		// El TORQUE_FACTOR controla qué tan rápido rota
+		float torque = (float) (GRAVITY * massFactor * Math.sin(currentAngle) * TORQUE_FACTOR);
+		
+		// 3. Actualizar Velocidad Angular (más controlada)
+		angularVelocity += torque * dt;
+		
+		// 4. Aplicar resistencia del aire
+		angularVelocity *= AIR_RESISTANCE;
+		
+		// 5. Actualizar Ángulo (sin límites artificiales)
+		currentAngle += angularVelocity * dt;
 	}
 	
 	/**
 	 * Rota el offset alrededor del pivote en 3D usando la fórmula de Rodrigues.
 	 */
 	private Vector3d rotateAroundPivot(Vector3d offset, Vector3d pivot, Vector3d direction, float angle) {
-		// Normalizar la dirección
+		// ... (Mismo código de Rodrigues que tenías) ...
 		Vector3d dir = direction.normalize();
-		
-		// Vector "arriba" inicial (Y+)
 		Vector3d upVector = new Vector3d(0, 1, 0);
-		
-		// Calcular eje de rotación: up × direction
-		Vector3d rotationAxis = new Vector3d(
-			upVector.y * dir.z - upVector.z * dir.y,
-			upVector.z * dir.x - upVector.x * dir.z,
-			upVector.x * dir.y - upVector.y * dir.x
-		);
-		
-		// Normalizar el eje de rotación
+		Vector3d rotationAxis = new Vector3d(upVector.y * dir.z - upVector.z * dir.y, upVector.z * dir.x - upVector.x * dir.z, upVector.x * dir.y - upVector.y * dir.x);
 		double axisLength = rotationAxis.length();
 		if (axisLength > 1e-6) {
 			rotationAxis.scale(1.0 / axisLength);
 		} else {
 			rotationAxis = new Vector3d(1, 0, 0);
 		}
-		
-		// Fórmula de Rodrigues: v_rot = v*cos(θ) + (k × v)*sin(θ) + k*(k·v)*(1-cos(θ))
 		double cosAngle = Math.cos(angle);
 		double sinAngle = Math.sin(angle);
 		double oneMinusCos = 1.0 - cosAngle;
-		
-		// Calcular k × offset (producto cruz)
-		Vector3d crossProduct = new Vector3d(
-			rotationAxis.y * offset.z - rotationAxis.z * offset.y,
-			rotationAxis.z * offset.x - rotationAxis.x * offset.z,
-			rotationAxis.x * offset.y - rotationAxis.y * offset.x
-		);
-		
-		// Calcular k · offset (producto punto)
+		Vector3d crossProduct = new Vector3d(rotationAxis.y * offset.z - rotationAxis.z * offset.y, rotationAxis.z * offset.x - rotationAxis.x * offset.z,
+				rotationAxis.x * offset.y - rotationAxis.y * offset.x);
 		double dotProduct = rotationAxis.x * offset.x + rotationAxis.y * offset.y + rotationAxis.z * offset.z;
-		
-		// Aplicar rotación de Rodrigues
-		Vector3d rotatedOffset = new Vector3d(
-			offset.x * cosAngle + crossProduct.x * sinAngle + rotationAxis.x * dotProduct * oneMinusCos,
-			offset.y * cosAngle + crossProduct.y * sinAngle + rotationAxis.y * dotProduct * oneMinusCos,
-			offset.z * cosAngle + crossProduct.z * sinAngle + rotationAxis.z * dotProduct * oneMinusCos
-		);
-		
-		// Retornar posición final: pivot + offset rotado
-		return new Vector3d(
-			pivot.x + rotatedOffset.x,
-			pivot.y + rotatedOffset.y,
-			pivot.z + rotatedOffset.z
-		);
+		Vector3d rotatedOffset = new Vector3d(offset.x * cosAngle + crossProduct.x * sinAngle + rotationAxis.x * dotProduct * oneMinusCos,
+				offset.y * cosAngle + crossProduct.y * sinAngle + rotationAxis.y * dotProduct * oneMinusCos,
+				offset.z * cosAngle + crossProduct.z * sinAngle + rotationAxis.z * dotProduct * oneMinusCos);
+		return new Vector3d(pivot.x + rotatedOffset.x, pivot.y + rotatedOffset.y, pivot.z + rotatedOffset.z);
 	}
 	
 	/**
 	 * Calcula la rotación 3D que alinea el modelo con la dirección de caída.
 	 */
 	private Vector3f calculateRotation(Vector3d direction, float angle) {
-		// Normalizar la dirección
 		Vector3d dir = direction.normalize();
-		
-		// Yaw: rotación alrededor del eje Y
 		float yaw = (float) Math.atan2(dir.x, dir.z) - (float) Math.PI / 2;
-		
-		// Pitch: rotación alrededor del eje X
 		float pitch = (float) Math.asin(-dir.y);
-		
-		// Roll: rotación del ángulo de caída
 		float roll = -angle;
-		
 		return new Vector3f(pitch, yaw, roll);
 	}
 	
@@ -378,32 +392,22 @@ public class TreePhysicsProvider implements IBlockCollisionConsumer {
 		return rootRef;
 	}
 	
-	public boolean hasCollided() {
-		return hasCollided;
-	}
-	
-	@Nullable
-	public Vector3d getCollisionPoint() {
-		return collisionPoint;
-	}
-	
-	@Nullable
-	public Vector3d getCollisionNormal() {
-		return collisionNormal;
+	public int getCollidingBlocksCount() {
+		return collidingBlocksCount;
 	}
 	
 	/**
 	 * Clona el proveedor de física.
 	 */
 	public TreePhysicsProvider clone() {
-		TreePhysicsProvider cloned = new TreePhysicsProvider(rootRef, pivotPoint, direction);
-		cloned.currentAngle = this.currentAngle;
-		cloned.angularVelocity = this.angularVelocity;
-		cloned.isActive = this.isActive;
-		cloned.isResting = this.isResting;
-		cloned.hasCollided = this.hasCollided;
-		cloned.childrenRefs = new ArrayList<>(this.childrenRefs);
-		return cloned;
+		//		TreePhysicsProvider cloned = new TreePhysicsProvider(rootRef, pivotPoint, direction);
+		//		cloned.currentAngle    = this.currentAngle;
+		//		cloned.angularVelocity = this.angularVelocity;
+		//		cloned.isActive        = this.isActive;
+		//		cloned.isResting       = this.isResting;
+		//		cloned.hasCollided     = this.hasCollided;
+		//		cloned.childrenRefs    = new ArrayList<>(this.childrenRefs);
+		return null;
 	}
 }
 

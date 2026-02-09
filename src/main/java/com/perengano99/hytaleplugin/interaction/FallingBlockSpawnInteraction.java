@@ -52,7 +52,7 @@ public class FallingBlockSpawnInteraction extends SimpleInstantInteraction {
 			if (btype == null) return;
 			
 			// El pivote será la base del árbol (justo encima del bloque clickeado)
-			Vector3d pivotPos = new Vector3d(x + 0.5, y + 1.5, z + 0.5);
+			Vector3d pivotPos = new Vector3d(x + 0.5, y + 2, z + 0.5);
 			
 			// Dirección de caída aleatoria
 			double randomAngle = Math.random() * Math.PI * 2;
@@ -69,29 +69,6 @@ public class FallingBlockSpawnInteraction extends SimpleInstantInteraction {
 			} else {
 				fallDirection = new Vector3d(0, 0, 1);
 			}
-			
-			// 1. Crear entidad ROOT (La base del tronco)
-			Holder<EntityStore> rootHolder = FallingTreeEntityBlock.createRoot(
-					TreeBlockType.TRUNK,
-					btype.getId(),
-					pivotPos,
-					fallDirection
-			                                                                  );
-			
-			setupEntityComponents(store, rootHolder);
-			
-			Ref<EntityStore> rootRef = store.addEntity(rootHolder, AddReason.SPAWN);
-			FallingTreeEntityBlock rootEntity = rootHolder.getComponent(
-					HytaleDevPlugin.getFallingTreeEntityBlockComponentType()
-			                                                           );
-			
-			// Crear el TreePhysicsProvider
-			TreePhysicsProvider physicsProvider = new TreePhysicsProvider(rootRef, pivotPos, fallDirection);
-			
-			if (rootEntity != null) {
-				rootEntity.setTreePhysicsProvider(physicsProvider);
-			}
-			
 			// Definir la estructura del árbol (Offsets relativos al pivote)
 			List<Vector3d> treeStructure = new ArrayList<>();
 			
@@ -122,6 +99,43 @@ public class FallingBlockSpawnInteraction extends SimpleInstantInteraction {
 			treeStructure.add(new Vector3d(0, 5, -1));
 			treeStructure.add(new Vector3d(0, 6, 0)); // Punta
 			
+			// Calcular el centro de masa (centroide) del árbol completo
+			// El ROOT está en el pivote (offset 0,0,0 relativo al pivote)
+			// Sumamos todos los offsets incluyendo el ROOT
+			Vector3d sumOffsets = new Vector3d(0, 0, 0); // Offset del ROOT
+			for (Vector3d v : treeStructure) {
+				sumOffsets.add(v);
+			}
+			
+			// Promedio: Suma / Cantidad total de bloques (Root + Hijos)
+			int totalBlocks = treeStructure.size() + 1; // +1 por el ROOT
+			Vector3d centerOfMassOffset = new Vector3d(
+					sumOffsets.x / totalBlocks,
+					sumOffsets.y / totalBlocks,
+					sumOffsets.z / totalBlocks
+			);
+			
+			// 1. Crear entidad ROOT (La base del tronco)
+			Holder<EntityStore> rootHolder = FallingTreeEntityBlock.createRoot(
+					TreeBlockType.TRUNK,
+					btype.getId(),
+					pivotPos,
+					fallDirection
+			                                                                  );
+			
+			setupEntityComponents(store, rootHolder);
+			
+			Ref<EntityStore> rootRef = store.addEntity(rootHolder, AddReason.SPAWN);
+			FallingTreeEntityBlock rootEntity = rootHolder.getComponent(HytaleDevPlugin.getFallingTreeEntityBlockComponentType());
+			
+			// Crear el TreePhysicsProvider
+			TreePhysicsProvider physicsProvider = new TreePhysicsProvider(rootRef, pivotPos, fallDirection, centerOfMassOffset);
+			
+			if (rootEntity != null) {
+				rootEntity.setTreePhysicsProvider(physicsProvider);
+			}
+			
+			
 			// 2. Generar entidades CHILD basadas en la estructura
 			for (Vector3d offset : treeStructure) {
 				// Calcular posición absoluta en el mundo
@@ -133,8 +147,7 @@ public class FallingBlockSpawnInteraction extends SimpleInstantInteraction {
 						childPos,
 						fallDirection,
 						rootRef,
-						pivotPos
-				                                                                    );
+						pivotPos);
 				
 				setupEntityComponents(store, childHolder);
 				
@@ -143,9 +156,7 @@ public class FallingBlockSpawnInteraction extends SimpleInstantInteraction {
 				// Agregar al provider
 				physicsProvider.addChild(childRef);
 				
-				FallingTreeEntityBlock childEntity = childHolder.getComponent(
-						HytaleDevPlugin.getFallingTreeEntityBlockComponentType()
-				                                                             );
+				FallingTreeEntityBlock childEntity = childHolder.getComponent(HytaleDevPlugin.getFallingTreeEntityBlockComponentType());
 				if (childEntity != null) {
 					childEntity.setTreePhysicsProvider(physicsProvider);
 				}
@@ -156,7 +167,7 @@ public class FallingBlockSpawnInteraction extends SimpleInstantInteraction {
 	// Helper para no repetir código de componentes comunes
 	private void setupEntityComponents(Store<EntityStore> store, Holder<EntityStore> holder) {
 		holder.addComponent(DespawnComponent.getComponentType(),
-				DespawnComponent.despawnInSeconds(store.getResource(TimeResource.getResourceType()), 60)); // 60 segs para admirar el desastre
+				DespawnComponent.despawnInSeconds(store.getResource(TimeResource.getResourceType()), 5)); // 60 segs para admirar el desastre
 		holder.addComponent(NetworkId.getComponentType(),
 				new NetworkId(store.getExternalData().takeNextNetworkId()));
 	}
